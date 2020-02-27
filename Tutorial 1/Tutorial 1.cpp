@@ -66,9 +66,9 @@ int main(int argc, char **argv) {
 		std::vector<int> C(vector_elements);
 
 		//device - buffers
-		cl::Buffer buffer_A(context, CL_MEM_READ_WRITE, vector_size);
-		cl::Buffer buffer_B(context, CL_MEM_READ_WRITE, vector_size);
-		cl::Buffer buffer_C(context, CL_MEM_READ_WRITE, vector_size);
+		cl::Buffer buffer_A(context, CL_MEM_READ_ONLY, vector_size);
+		cl::Buffer buffer_B(context, CL_MEM_READ_ONLY, vector_size);
+		cl::Buffer buffer_C(context, CL_MEM_WRITE_ONLY, vector_size);
 
 		//Part 4 - device operations
 
@@ -76,12 +76,17 @@ int main(int argc, char **argv) {
 		queue.enqueueWriteBuffer(buffer_A, CL_TRUE, 0, vector_size, &A[0]);
 		queue.enqueueWriteBuffer(buffer_B, CL_TRUE, 0, vector_size, &B[0]);
 
+
 		//4.2 Setup and execute the kernel (i.e. device code)
 		cl::Kernel kernel_add = cl::Kernel(program, "add");
 		kernel_add.setArg(0, buffer_A);
 		kernel_add.setArg(1, buffer_B);
 		kernel_add.setArg(2, buffer_C);
 
+		cl::Device device = context.getInfo<CL_CONTEXT_DEVICES>()[0]; //get device
+		std::cout << "Preferred Size:";
+		cerr << kernel_add.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(device) << endl; //get info
+		
 		queue.enqueueNDRangeKernel(kernel_add, cl::NullRange, cl::NDRange(vector_elements), cl::NullRange);
 
 		//4.3 Copy the result from device to host
