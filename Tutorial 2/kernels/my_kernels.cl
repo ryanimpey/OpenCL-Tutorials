@@ -67,9 +67,11 @@ kernel void avg_filterND(global const uchar* A, global uchar* B) {
 	if ((x == 0) || (x == width-1) || (y == 0) || (y == height-1)) {
 		result = A[id];	
 	} else {
-		for (int i = (x-1); i <= (x+1); i++)
-		for (int j = (y-1); j <= (y+1); j++) 
-			result += A[i + j*width + c*image_size];
+		for (int i = (x - 1); i <= (x + 1); i++) {
+			for (int j = (y - 1); j <= (y + 1); j++) {
+				result += A[i + j*width + c*image_size];
+			}
+		}
 
 		result /= 9;
 	}
