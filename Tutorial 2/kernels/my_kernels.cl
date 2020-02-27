@@ -1,6 +1,8 @@
 //a simple OpenCL kernel which copies all pixels from A to B
 kernel void identity(global const uchar* A, global uchar* B) {
 	int id = get_global_id(0);
+
+	// Simple copy from A to B
 	B[id] = A[id];
 }
 
@@ -9,8 +11,25 @@ kernel void filter_r(global const uchar* A, global uchar* B) {
 	int image_size = get_global_size(0)/3; //each image consists of 3 colour channels
 	int colour_channel = id / image_size; // 0 - red, 1 - green, 2 - blue
 
+	// Exclusively copy red colour channels over to our output image's buffer
+	if (colour_channel == 0) {
+		B[id] = A[id];
+	}
+	else {
+		B[id] = 0;
+	}
+
 	//this is just a copy operation, modify to filter out the individual colour channels
-	B[id] = A[id];
+	//B[id] = A[id];
+}
+
+// Invert the current pixel intensity value for each pixel in a CImg array
+kernel void invert(global const uchar* A, global uchar* B) {
+	int id = get_global_id(0);
+	
+	// Take a max value of 255 and subtract a value (0-255) from it to get the inverted value, e.g 255 - 0 = 255; 255 - 100 = 155
+	int inverted_value = 255 - A[id];
+	B[id] = inverted_value;
 }
 
 //simple ND identity kernel

@@ -20,7 +20,7 @@ int main(int argc, char **argv) {
 	//Part 1 - handle command line options such as device selection, verbosity, etc.
 	int platform_id = 0;
 	int device_id = 0;
-	string image_filename = "test.ppm";
+	string image_filename = "test_large.ppm";
 
 	for (int i = 1; i < argc; i++) {
 		if ((strcmp(argv[i], "-p") == 0) && (i < (argc - 1))) { platform_id = atoi(argv[++i]); }
@@ -38,16 +38,14 @@ int main(int argc, char **argv) {
 		CImgDisplay disp_input(image_input,"input");
 
 		//a 3x3 convolution mask implementing an averaging filter
-		std::vector<float> convolution_mask = { 1.f / 9, 1.f / 9, 1.f / 9,
-												1.f / 9, 1.f / 9, 1.f / 9,
-												1.f / 9, 1.f / 9, 1.f / 9 };
+		std::vector<float> convolution_mask(9, 1.f / 9);
 
 		//Part 3 - host operations
 		//3.1 Select computing devices
 		cl::Context context = GetContext(platform_id, device_id);
 
 		//display the selected device
-		std::cout << "Runing on " << GetPlatformName(platform_id) << ", " << GetDeviceName(platform_id, device_id) << std::endl;
+		std::cout << "Running on " << GetPlatformName(platform_id) << ", " << GetDeviceName(platform_id, device_id) << std::endl;
 
 		//create a queue to which we will push commands for the device
 		cl::CommandQueue queue(context);
@@ -82,7 +80,7 @@ int main(int argc, char **argv) {
 //		queue.enqueueWriteBuffer(dev_convolution_mask, CL_TRUE, 0, convolution_mask.size()*sizeof(float), &convolution_mask[0]);
 
 		//4.2 Setup and execute the kernel (i.e. device code)
-		cl::Kernel kernel = cl::Kernel(program, "identity");
+		cl::Kernel kernel = cl::Kernel(program, "invert");
 		kernel.setArg(0, dev_image_input);
 		kernel.setArg(1, dev_image_output);
 //		kernel.setArg(2, dev_convolution_mask);
@@ -96,8 +94,8 @@ int main(int argc, char **argv) {
 		CImg<unsigned char> output_image(output_buffer.data(), image_input.width(), image_input.height(), image_input.depth(), image_input.spectrum());
 		CImgDisplay disp_output(output_image,"output");
 
- 		while (!disp_input.is_closed() && !disp_output.is_closed()
-			&& !disp_input.is_keyESC() && !disp_output.is_keyESC()) {
+		// Requires both the input and output image to be closed before the application is terminated
+		while (!disp_input.is_closed() && !disp_output.is_closed() && !disp_input.is_keyESC() && !disp_output.is_keyESC()) {
 		    disp_input.wait(1);
 		    disp_output.wait(1);
 	    }		
