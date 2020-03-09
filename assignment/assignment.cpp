@@ -63,6 +63,7 @@ int main(int argc, char **argv) {
 
 		AddSources(sources, "kernels/my_kernels.cl");
 
+		// Create a program to combine context and kernels
 		cl::Program program(context, sources);
 
 		//build and debug the kernel code
@@ -79,35 +80,92 @@ int main(int argc, char **argv) {
 		//Part 4 - device operations
 
 		// Create two buffers, one for the input image and one for the output
-		cl::Buffer dev_image_input(context, CL_MEM_READ_ONLY, image_input.size()); // Only allow reading from this buffer
-		cl::Buffer dev_image_output(context, CL_MEM_READ_WRITE, image_input.size()); // Only allow writing to this buffer
-//		cl::Buffer dev_convolution_mask(context, CL_MEM_READ_ONLY, convolution_mask.size()*sizeof(float));
+		cl::Buffer image_input_buffer(context, CL_MEM_READ_ONLY, image_input.size());
+		cl::Buffer image_output_buffer(context, CL_MEM_READ_ONLY, image_input.size());
 
-		//4.1 Copy images to device memory
-		queue.enqueueWriteBuffer(dev_image_input, CL_TRUE, 0, image_input.size(), &image_input.data()[0]);
-//		queue.enqueueWriteBuffer(dev_convolution_mask, CL_TRUE, 0, convolution_mask.size()*sizeof(float), &convolution_mask[0]);
+		// Copy input buffer to device memory
+		queue.enqueueWriteBuffer(image_input_buffer, CL_TRUE, 0, image_input.size(), &image_input.data()[0]);
 
-		//4.2 Setup and execute the kernel (i.e. device code)
-		cl::Kernel kernel = cl::Kernel(program, "invert");
-		kernel.setArg(0, dev_image_input);
-		kernel.setArg(1, dev_image_output);
-//		kernel.setArg(2, dev_convolution_mask);
+		// Set up kernel for device execution and pass in buffers as arguements
+		cl::Kernel kernel = cl::Kernel(program, "invert"); // Invert all pixels
+		kernel.setArg(0, image_input_buffer);
+		kernel.setArg(1, image_output_buffer);
 
+		// Enqueues a command to execute a kernel on a device
 		queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(image_input.size()), cl::NullRange);
 
-		vector<unsigned char> output_buffer(image_input.size());
-		//4.3 Copy the result from device to host
-		queue.enqueueReadBuffer(dev_image_output, CL_TRUE, 0, output_buffer.size(), &output_buffer.data()[0]);
 
-		CImg<unsigned char> output_image(output_buffer.data(), image_input.width(), image_input.height(), image_input.depth(), image_input.spectrum());
-		CImgDisplay disp_output(output_image,"output");
+		// Create an output buffer to store values copied from device once computation is complete
+		vector<unsigned char> output_buffer(image_input.size());
+
+		// Copy result to the buffer just defined
+		queue.enqueueReadBuffer(image_output_buffer, CL_TRUE, 0, output_buffer.size(), &output_buffer.data()[0]);
+
+		// Create a new CImg and window to display the results
+		CImg<unsigned char>image_output(output_buffer.data(), image_input.width(), image_input.height(), image_input.depth(), image_input.spectrum());
+		CImgDisplay disp_output(image_output, "output");
+
+		// Requires both the input and output image to be closed before the application is terminated
+		while (!disp_input.is_closed() && !disp_output.is_closed() && !disp_input.is_keyESC() && !disp_output.is_keyESC()) {
+			disp_input.wait(1);
+			disp_output.wait(1);
+		}
+
+
+		// Create two buffers, one for the input image and one for the output
+		////cl::Buffer dev_image_input(context, CL_MEM_READ_ONLY, image_input.size()); // Only allow reading from this buffer
+		////cl::Buffer dev_image_output(context, CL_MEM_READ_WRITE, image_input.size()); // Only allow writing to this buffer
+//		cl::Buffer dev_convolution_mask(context, CL_MEM_READ_ONLY, convolution_mask.size()*sizeof(float));
+		
+		// Create our host output vector
+		////std::vector<int> output(image_input.size());
+		// Define the size of our output buffer in bytes
+		////size_t input_size = image_input.size() * sizeof(int);
+		////size_t output_size = output.size() * sizeof(int);
+
+		// Create a buffer for the input image
+		////cl::Buffer input_buffer(context, CL_MEM_READ_ONLY, image_input.size());
+		// Create a buffer for our output
+		////cl::Buffer output_buffer(context, CL_MEM_WRITE_ONLY, output_size);
+
+		//4.1 Copy images to device memory
+		////queue.enqueueWriteBuffer(input_buffer, CL_TRUE, 0, image_input.size(), &image_input.data()[0]);
+//		queue.enqueueWriteBuffer(dev_convolution_mask, CL_TRUE, 0, convolution_mask.size()*sizeof(float), &convolution_mask[0]);
+
+		// Fill our buffer with blanks before executing a write
+		////queue.enqueueFillBuffer(output_buffer, 0, 0, output_size);
+
+		//4.2 Setup and execute the kernel (i.e. device code)
+		////cl::Kernel kernel = cl::Kernel(program, "hist_simple");
+
+		// Set our kernel arguements
+		////kernel.setArg(0, input_buffer);
+		////kernel.setArg(1, output_buffer);
+//		kernel.setArg(2, dev_convolution_mask);
+			
+		// Enqueues a command to execute a kernel on a device. The kernel is defined above with cl::Kernel
+		////queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(image_input.size()), cl::NullRange);
+
+		////vector<unsigned char> output_buffer(image_input.size());
+		//4.3 Copy the result from device to host
+		////std::cout << "Copying..." << std::endl;
+
+		////queue.enqueueReadBuffer(output_buffer, CL_TRUE, 0, output_size, &output[0]);
+
+		////std::cout << "Buffer: " << output << std::endl;
+		//Img<unsigned char> output_image(output_buffer.data(), image_input.width(), image_input.height(), image_input.depth(), image_input.spectrum());
+		//CImgDisplay disp_output(output_image,"output");
+
+		/*while (!disp_input.is_closed()) {
+			disp_input.wait(1);
+		}*/
 
 		// Allows the closing of either the input or output image to continue to program shutdown
-		while (!disp_input.is_closed() && !disp_output.is_closed() && !disp_input.is_keyESC() && !disp_output.is_keyESC()) {
-			// Keeps the GUI window for the input and output window displaying
-		    disp_input.wait(1);
-		    disp_output.wait(1);
-	    }		
+		//while (!disp_input.is_closed() && !disp_output.is_closed() && !disp_input.is_keyESC() && !disp_output.is_keyESC()) {
+		//	// Keeps the GUI window for the input and output window displaying
+		//    disp_input.wait(1);
+		//    disp_output.wait(1);
+	 //   }		
 
 	}
 	catch (const cl::Error& err) {

@@ -29,7 +29,7 @@ kernel void filter_r(global const uchar* A, global uchar* B) {
 kernel void invert(global const uchar* A, global uchar* B) {
 	int id = get_global_id(0);
 
-	printf("Value: %i\n", A[id]);
+	printf("%i, ", A[id]);
 	
 	// Take a max value of 255 and subtract a value (0-255) from it to get the inverted value, e.g 255 - 0 = 255; 255 - 100 = 155
 	B[id] = 255 - A[id];
@@ -115,6 +115,7 @@ kernel void hist_simple(global const int* A, global int* H) {
 
 	//assumes that H has been initialised to 0
 	int bin_index = A[id];//take value as a bin index
+	printf("Bin Index: %i", bin_index);
 
 	atomic_inc(&H[bin_index]);//serial operation, not very efficient!
 }
