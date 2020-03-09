@@ -79,17 +79,31 @@ int main(int argc, char **argv) {
 
 		//Part 4 - device operations
 
+		// Create a host vector (Histogram Bin) to hold our output values
+		std::vector<int> bin(256);
+		size_t bin_size = bin.size() * sizeof(int);
+
 		// Create two buffers, one for the input image and one for the output
 		cl::Buffer image_input_buffer(context, CL_MEM_READ_ONLY, image_input.size());
 		cl::Buffer image_output_buffer(context, CL_MEM_READ_ONLY, image_input.size());
 
+		// Create a third bin to hold our histogram values
+		cl::Buffer image_histogram_buffer(context, CL_MEM_READ_WRITE, bin_size);
+
+		std::cout << "Bin Size: " << bin.size() << std::endl;
+		std::cout << "Bin Size in Bytes: " << bin_size << std::endl;
+
 		// Copy input buffer to device memory
 		queue.enqueueWriteBuffer(image_input_buffer, CL_TRUE, 0, image_input.size(), &image_input.data()[0]);
+
+		// Fill histogram bin buffer with 0's on device memory
+		queue.enqueueFillBuffer(image_histogram_buffer, 0, 0, bin_size);
 
 		// Set up kernel for device execution and pass in buffers as arguements
 		cl::Kernel kernel = cl::Kernel(program, "invert"); // Invert all pixels
 		kernel.setArg(0, image_input_buffer);
 		kernel.setArg(1, image_output_buffer);
+		kernel.setArg(2, image_histogram_buffer);
 
 		// Enqueues a command to execute a kernel on a device
 		queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(image_input.size()), cl::NullRange);
@@ -100,6 +114,9 @@ int main(int argc, char **argv) {
 
 		// Copy result to the buffer just defined
 		queue.enqueueReadBuffer(image_output_buffer, CL_TRUE, 0, output_buffer.size(), &output_buffer.data()[0]);
+		queue.enqueueReadBuffer(image_histogram_buffer, CL_TRUE, 0, bin_size, &bin[0]);
+
+		std::cout << "Bin: " << bin << std::endl;
 
 		// Create a new CImg and window to display the results
 		CImg<unsigned char>image_output(output_buffer.data(), image_input.width(), image_input.height(), image_input.depth(), image_input.spectrum());

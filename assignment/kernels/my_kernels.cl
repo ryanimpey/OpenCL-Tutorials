@@ -26,13 +26,17 @@ kernel void filter_r(global const uchar* A, global uchar* B) {
 }
 
 // Invert the current pixel intensity value for each pixel in a CImg array
-kernel void invert(global const uchar* A, global uchar* B) {
+kernel void invert(global const uchar* A, global uchar* B, global int* H) {
 	int id = get_global_id(0);
 
-	printf("%i, ", A[id]);
+	////printf("%i, ", A[id]);
 	
 	// Take a max value of 255 and subtract a value (0-255) from it to get the inverted value, e.g 255 - 0 = 255; 255 - 100 = 155
 	B[id] = 255 - A[id];
+
+	//assumes that H has been initialised to 0
+	int bin_index = A[id];//take value as a bin index
+	atomic_inc(&H[bin_index]);//serial operation, not very efficient!
 }
 
 //simple ND identity kernel
