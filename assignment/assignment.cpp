@@ -78,9 +78,9 @@ int main(int argc, char **argv) {
 
 		//Part 4 - device operations
 
-		//device - buffers
-		cl::Buffer dev_image_input(context, CL_MEM_READ_ONLY, image_input.size());
-		cl::Buffer dev_image_output(context, CL_MEM_READ_WRITE, image_input.size()); //should be the same as input image
+		// Create two buffers, one for the input image and one for the output
+		cl::Buffer dev_image_input(context, CL_MEM_READ_ONLY, image_input.size()); // Only allow reading from this buffer
+		cl::Buffer dev_image_output(context, CL_MEM_READ_WRITE, image_input.size()); // Only allow writing to this buffer
 //		cl::Buffer dev_convolution_mask(context, CL_MEM_READ_ONLY, convolution_mask.size()*sizeof(float));
 
 		//4.1 Copy images to device memory

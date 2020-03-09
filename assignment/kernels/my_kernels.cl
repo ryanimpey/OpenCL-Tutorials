@@ -11,6 +11,8 @@ kernel void filter_r(global const uchar* A, global uchar* B) {
 	int image_size = get_global_size(0)/3; //each image consists of 3 colour channels
 	int colour_channel = id / image_size; // 0 - red, 1 - green, 2 - blue
 
+	printf("Channel: %i\n", colour_channel);
+
 	// Exclusively copy red colour channels over to our output image's buffer
 	if (colour_channel == 0) {
 		B[id] = A[id];
@@ -26,6 +28,8 @@ kernel void filter_r(global const uchar* A, global uchar* B) {
 // Invert the current pixel intensity value for each pixel in a CImg array
 kernel void invert(global const uchar* A, global uchar* B) {
 	int id = get_global_id(0);
+
+	printf("Value: %i\n", A[id]);
 	
 	// Take a max value of 255 and subtract a value (0-255) from it to get the inverted value, e.g 255 - 0 = 255; 255 - 100 = 155
 	B[id] = 255 - A[id];
@@ -103,4 +107,14 @@ kernel void convolutionND(global const uchar* A, global uchar* B, constant float
 	}
 
 	B[id] = (uchar)result;
+}
+
+// Serialized histogram implementation
+kernel void hist_simple(global const int* A, global int* H) {
+	int id = get_global_id(0);
+
+	//assumes that H has been initialised to 0
+	int bin_index = A[id];//take value as a bin index
+
+	atomic_inc(&H[bin_index]);//serial operation, not very efficient!
 }
