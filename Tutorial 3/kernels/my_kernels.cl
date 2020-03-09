@@ -55,7 +55,8 @@ kernel void reduce_add_3(global const int* A, global int* B, local int* scratch)
 	//cache all N values from global memory to local memory
 	scratch[lid] = A[id];
 
-	barrier(CLK_LOCAL_MEM_FENCE);//wait for all local threads to finish copying from global to local memory
+	//wait for all local threads to finish copying from global to local memory
+	barrier(CLK_LOCAL_MEM_FENCE);
 
 	for (int i = 1; i < N; i *= 2) {
 		if (!(lid % (i * 2)) && ((lid + i) < N)) 
