@@ -190,7 +190,7 @@ xcopy /y "..\images\*" "$(OutDir)"</Command>
     <Intel_OpenCL_Build_Rules Include="my_kernels_2.cl" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Tutorial 2.cpp" />
+    <ClCompile Include="assignment.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="kernels\my_kernels.cl" />

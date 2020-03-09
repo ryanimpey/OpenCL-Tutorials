@@ -6,6 +6,7 @@
 
 using namespace cimg_library;
 
+// Returns console information about different flags that can be passed to the function
 void print_help() {
 	std::cerr << "Application usage:" << std::endl;
 
@@ -18,10 +19,14 @@ void print_help() {
 
 int main(int argc, char **argv) {
 	//Part 1 - handle command line options such as device selection, verbosity, etc.
+	// Define platform and device ID's as defaults incase no arguements are passed through
 	int platform_id = 0;
 	int device_id = 0;
-	string image_filename = "test_large.ppm";
 
+	// Load in our initial reference file
+	string image_filename = "test.pgm";
+
+	// Handle command line arguements
 	for (int i = 1; i < argc; i++) {
 		if ((strcmp(argv[i], "-p") == 0) && (i < (argc - 1))) { platform_id = atoi(argv[++i]); }
 		else if ((strcmp(argv[i], "-d") == 0) && (i < (argc - 1))) { device_id = atoi(argv[++i]); }
@@ -30,11 +35,14 @@ int main(int argc, char **argv) {
 		else if (strcmp(argv[i], "-h") == 0) { print_help(); return 0; }
 	}
 
+	// Hides CImg library messages/exceptions from the output
 	cimg::exception_mode(0);
 
 	//detect any potential exceptions
 	try {
+		// Returns a pointer to a image location from its filename
 		CImg<unsigned char> image_input(image_filename.c_str());
+		// Create a new CImg window to display our input image
 		CImgDisplay disp_input(image_input,"input");
 
 		//a 3x3 convolution mask implementing an averaging filter
@@ -94,19 +102,23 @@ int main(int argc, char **argv) {
 		CImg<unsigned char> output_image(output_buffer.data(), image_input.width(), image_input.height(), image_input.depth(), image_input.spectrum());
 		CImgDisplay disp_output(output_image,"output");
 
-		// Requires both the input and output image to be closed before the application is terminated
+		// Allows the closing of either the input or output image to continue to program shutdown
 		while (!disp_input.is_closed() && !disp_output.is_closed() && !disp_input.is_keyESC() && !disp_output.is_keyESC()) {
+			// Keeps the GUI window for the input and output window displaying
 		    disp_input.wait(1);
 		    disp_output.wait(1);
 	    }		
 
 	}
 	catch (const cl::Error& err) {
+		// Handle any exceptions that occur during build/runtime
 		std::cerr << "ERROR: " << err.what() << ", " << getErrorString(err.err()) << std::endl;
 	}
 	catch (CImgException& err) {
+		// Handle any CImg related exceptions that occur during build/runtime
 		std::cerr << "ERROR: " << err.what() << std::endl;
 	}
 
+	// Return 0 to terminate the application
 	return 0;
 }
