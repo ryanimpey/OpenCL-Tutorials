@@ -25,7 +25,7 @@ kernel void filter_r(global const uchar* A, global uchar* B) {
 	//B[id] = A[id];
 }
 
-// Invert the current pixel intensity value for each pixel in a CImg array
+// Invert the current pixel intensity value for each pixel in a CImg array, currently also does histogram!
 kernel void invert(global const uchar* A, global uchar* B, global int* H) {
 	int id = get_global_id(0);
 
@@ -122,4 +122,24 @@ kernel void hist_simple(global const int* A, global int* H) {
 	printf("Bin Index: %i", bin_index);
 
 	atomic_inc(&H[bin_index]);//serial operation, not very efficient!
+}
+
+//requires additional buffer B to avoid data overwrite
+//final result stored in B
+kernel void scan_hs(global int* A, global int* B) {
+	int id = get_global_id(0);
+	int N = get_global_size(0);
+	global int* C;
+	for (int stride=1;stride<N; stride*=2) {
+		B[id] = A[id];
+		if (id >= stride) {
+			B[id] += A[id - stride];
+		}
+
+		//sync the step
+		barrier(CLK_GLOBAL_MEM_FENCE);
+		//swap A & B between steps
+		C = A; A = B; B = C;
+		printf("%i", B);
+	}
 }
