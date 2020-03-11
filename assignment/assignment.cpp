@@ -76,9 +76,10 @@ int main(int argc, char **argv) {
 		std::vector<int> histBin(256);
 		size_t histBinSize = histBin.size() * sizeof(int);
 
-		// Create our buffers for usage in OpenCL Kernels
+		// Create our initial buffers for usage in OpenCL Kernels
 		cl::Buffer inputImgBuffer(context, CL_MEM_READ_ONLY, inputImgPtr.size()); // Create a read-only buffer with a size of our input image
 		cl::Buffer histBuffer(context, CL_MEM_READ_WRITE, histBinSize);  // Create a read-write buffer with the size of our histogram bin (bin_size * size(int))
+		
 //		cl::Buffer image_output_buffer(context, CL_MEM_READ_ONLY, inputImgPtr.size()); // Not in use yet!
 //		cl::Buffer scan_histogram_buffer(context, CL_MEM_READ_WRITE, histBinSize); // Not in use yet!
 
@@ -91,17 +92,44 @@ int main(int argc, char **argv) {
 		queue.enqueueFillBuffer(histBuffer, 0, 0, histBinSize);
 
 		// Set up histogram kernel for device execution
-		cl::Kernel kernel_histogram = cl::Kernel(program, "histogram"); // Load the histogram kernel defined in my_kernels
-		kernel_histogram.setArg(0, inputImgBuffer);  // Pass in our image buffer as our input
-		kernel_histogram.setArg(1, histBuffer);  // Pass in our histogram buffer as our output
+		cl::Kernel kernelHist = cl::Kernel(program, "histogram"); // Load the histogram kernel defined in my_kernels
+		kernelHist.setArg(0, inputImgBuffer);  // Pass in our image buffer as our input
+		kernelHist.setArg(1, histBuffer);  // Pass in our histogram buffer as our output
 
 		// Execute our histogram kernel on the selected device
-		queue.enqueueNDRangeKernel(kernel_histogram, cl::NullRange, cl::NDRange(inputImgPtr.size()), cl::NullRange);
+		queue.enqueueNDRangeKernel(kernelHist, cl::NullRange, cl::NDRange(inputImgPtr.size()), cl::NullRange);
 
 		// Write the histogram result from our device memory to our vector via the histogram buffer
 		queue.enqueueReadBuffer(histBuffer, CL_TRUE, 0, histBinSize, &histBin[0]);
 
-		std::cout << "Histogram Bin: " << histBin << "\n\n" << std::endl;
+		std::cout << "Original Histogram:\n" << histBin << "\n\n" << std::endl;
+
+		/* Part 2 - Cumulative Histogram Generation */
+
+		// Create a new vector to store our cumulative bin values
+		std::vector<int> cumHistBin(histBin.size());
+		size_t cumHistBinSize = cumHistBin.size() * sizeof(int);
+
+		// Create a new buffer to hold data about our cumulative histogram on our device
+		cl::Buffer cumHistBuffer(context, CL_MEM_READ_WRITE, cumHistBinSize);
+
+		// Write histogram data to our device's memory via our histogram buffer
+		queue.enqueueWriteBuffer(histBuffer, CL_TRUE, 0, histBinSize, &histBin[0]);
+		// Write cumulative histogram bin buffer filled with 0's to our devices memory
+		queue.enqueueFillBuffer(cumHistBuffer, 0, 0, cumHistBinSize);
+
+		// Set up cumulative kernel for device execution
+		cl::Kernel kernelCumHist = cl::Kernel(program, "scan_add_atomic"); // Load the scan_add_atomic kernel defined in my_kernels
+		kernelCumHist.setArg(0, histBuffer); // Pass in our histogram buffer as our input
+		kernelCumHist.setArg(1, cumHistBuffer); // Pass in our cumulative histogram buffer as our output
+
+		// Execute the cumulative histogram kernel on the selected device
+		queue.enqueueNDRangeKernel(kernelCumHist, cl::NullRange, cl::NDRange(histBin.size()), cl::NDRange(256));
+
+		// Copy the result from device to host
+		queue.enqueueReadBuffer(cumHistBuffer, CL_TRUE, 0, cumHistBinSize, &cumHistBin[0]);
+
+		std::cout << "Cumulative Histogram:\n" << cumHistBin << "\n\n" << std::endl;
 
 		// Create an output buffer to store values copied from device once computation is complete
 		////vector<unsigned char> output_buffer(inputImgPtr.size());

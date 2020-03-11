@@ -7,6 +7,14 @@ kernel void histogram(global const uchar* A, global int* H) {
 	atomic_inc(&H[A[id]]);
 }
 
+//simple exclusive serial scan based on atomic operations - sufficient for small number of elements
+kernel void scan_add_atomic(global int* A, global int* B) {
+	int id = get_global_id(0);
+	int N = get_global_size(0);
+	for (int i = id + 1; i < N; i++)
+		atomic_add(&B[i], A[id]);
+}
+
 //requires additional buffer B to avoid data overwrite
 //final result stored in B
 kernel void scan_hs(global int* input, global int* output) {
