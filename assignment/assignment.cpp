@@ -42,14 +42,8 @@ int main(int argc, char **argv) {
 	try {
 		// Returns a pointer to a image location from its filename
 		CImg<unsigned char> image_input(image_filename.c_str());
-		// Create a new CImg window to display our input image
-		CImgDisplay disp_input(image_input,"input");
 
-		//a 3x3 convolution mask implementing an averaging filter
-		std::vector<float> convolution_mask(9, 1.f / 9);
-
-		//Part 3 - host operations
-		//3.1 Select computing devices
+		// Select platform and device to use to create a context from
 		cl::Context context = GetContext(platform_id, device_id);
 
 		//display the selected device
@@ -60,13 +54,12 @@ int main(int argc, char **argv) {
 
 		//3.2 Load & build the device code
 		cl::Program::Sources sources;
-
 		AddSources(sources, "kernels/my_kernels.cl");
 
 		// Create a program to combine context and kernels
 		cl::Program program(context, sources);
 
-		//build and debug the kernel code
+		// Attempt to build the program
 		try { 
 			program.build();
 		}
@@ -85,10 +78,11 @@ int main(int argc, char **argv) {
 
 		// Create two buffers, one for the input image and one for the output
 		cl::Buffer image_input_buffer(context, CL_MEM_READ_ONLY, image_input.size());
-		cl::Buffer image_output_buffer(context, CL_MEM_READ_ONLY, image_input.size());
+		////cl::Buffer image_output_buffer(context, CL_MEM_READ_ONLY, image_input.size());
 
 		// Create a third bin to hold our histogram values
 		cl::Buffer image_histogram_buffer(context, CL_MEM_READ_WRITE, bin_size);
+		cl::Buffer scan_histogram_buffer(context, CL_MEM_READ_WRITE, bin_size);
 
 		std::cout << "Bin Size: " << bin.size() << std::endl;
 		std::cout << "Bin Size in Bytes: " << bin_size << std::endl;
@@ -100,90 +94,59 @@ int main(int argc, char **argv) {
 		queue.enqueueFillBuffer(image_histogram_buffer, 0, 0, bin_size);
 
 		// Set up kernel for device execution and pass in buffers as arguements
-		cl::Kernel kernel = cl::Kernel(program, "invert"); // Invert all pixels
-		kernel.setArg(0, image_input_buffer);
-		kernel.setArg(1, image_output_buffer);
-		kernel.setArg(2, image_histogram_buffer);
+		cl::Kernel kernel_histogram = cl::Kernel(program, "histogram");
+		kernel_histogram.setArg(0, image_input_buffer);
+		kernel_histogram.setArg(1, image_histogram_buffer);
 
 		// Enqueues a command to execute a kernel on a device
-		queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(image_input.size()), cl::NullRange);
+		queue.enqueueNDRangeKernel(kernel_histogram, cl::NullRange, cl::NDRange(image_input.size()), cl::NullRange);
 
 
 		// Create an output buffer to store values copied from device once computation is complete
-		vector<unsigned char> output_buffer(image_input.size());
+		////vector<unsigned char> output_buffer(image_input.size());
 
 		// Copy result to the buffer just defined
-		queue.enqueueReadBuffer(image_output_buffer, CL_TRUE, 0, output_buffer.size(), &output_buffer.data()[0]);
+		////queue.enqueueReadBuffer(image_output_buffer, CL_TRUE, 0, output_buffer.size(), &output_buffer.data()[0]); // Not needed yet
+		// Copy result back to our original 'bin' vector
 		queue.enqueueReadBuffer(image_histogram_buffer, CL_TRUE, 0, bin_size, &bin[0]);
 
-		std::cout << "Bin: " << bin << std::endl;
+		// ---
+
+		std::cout << "Histogram Bin: " << bin << "\n\n" << std::endl;
+
+		std::vector<int> bin_test(256, 1);
+
+		std::cout << "Bin Test:" << bin_test << "\n" << std::endl;
+
+		// Fill histogram bin buffer with 0's on device memory
+		queue.enqueueFillBuffer(scan_histogram_buffer, 0, 0, bin_size);
+		queue.enqueueFillBuffer(image_histogram_buffer, 0, 0, bin_size);
+
+		queue.enqueueWriteBuffer(image_histogram_buffer, CL_TRUE, 0, bin_test.size(), &bin_test[0]);
+
+		// Redefine the kernel as our second step
+		cl::Kernel kernel_scan = cl::Kernel(program, "scan_hs");
+		kernel_scan.setArg(0, image_histogram_buffer);
+		kernel_scan.setArg(1, scan_histogram_buffer);
+
+		// Enqueues a command to execute a kernel on a device
+		queue.enqueueNDRangeKernel(kernel_scan, cl::NullRange, cl::NDRange(bin_size), cl::NDRange(256));
+
+		queue.enqueueReadBuffer(scan_histogram_buffer, CL_TRUE, 0, bin_test.size(), &bin[0]);
+
+		std::cout << "\nCumulative Bin: " << bin << std::endl;
 
 		// Create a new CImg and window to display the results
-		CImg<unsigned char>image_output(output_buffer.data(), image_input.width(), image_input.height(), image_input.depth(), image_input.spectrum());
-		CImgDisplay disp_output(image_output, "output");
+		////CImg<unsigned char>image_output(output_buffer.data(), image_input.width(), image_input.height(), image_input.depth(), image_input.spectrum());
+		////CImgDisplay disp_output(image_output, "output");
 
 		// Requires both the input and output image to be closed before the application is terminated
+		/*
 		while (!disp_input.is_closed() && !disp_output.is_closed() && !disp_input.is_keyESC() && !disp_output.is_keyESC()) {
 			disp_input.wait(1);
 			disp_output.wait(1);
 		}
-
-
-		// Create two buffers, one for the input image and one for the output
-		////cl::Buffer dev_image_input(context, CL_MEM_READ_ONLY, image_input.size()); // Only allow reading from this buffer
-		////cl::Buffer dev_image_output(context, CL_MEM_READ_WRITE, image_input.size()); // Only allow writing to this buffer
-//		cl::Buffer dev_convolution_mask(context, CL_MEM_READ_ONLY, convolution_mask.size()*sizeof(float));
-		
-		// Create our host output vector
-		////std::vector<int> output(image_input.size());
-		// Define the size of our output buffer in bytes
-		////size_t input_size = image_input.size() * sizeof(int);
-		////size_t output_size = output.size() * sizeof(int);
-
-		// Create a buffer for the input image
-		////cl::Buffer input_buffer(context, CL_MEM_READ_ONLY, image_input.size());
-		// Create a buffer for our output
-		////cl::Buffer output_buffer(context, CL_MEM_WRITE_ONLY, output_size);
-
-		//4.1 Copy images to device memory
-		////queue.enqueueWriteBuffer(input_buffer, CL_TRUE, 0, image_input.size(), &image_input.data()[0]);
-//		queue.enqueueWriteBuffer(dev_convolution_mask, CL_TRUE, 0, convolution_mask.size()*sizeof(float), &convolution_mask[0]);
-
-		// Fill our buffer with blanks before executing a write
-		////queue.enqueueFillBuffer(output_buffer, 0, 0, output_size);
-
-		//4.2 Setup and execute the kernel (i.e. device code)
-		////cl::Kernel kernel = cl::Kernel(program, "hist_simple");
-
-		// Set our kernel arguements
-		////kernel.setArg(0, input_buffer);
-		////kernel.setArg(1, output_buffer);
-//		kernel.setArg(2, dev_convolution_mask);
-			
-		// Enqueues a command to execute a kernel on a device. The kernel is defined above with cl::Kernel
-		////queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(image_input.size()), cl::NullRange);
-
-		////vector<unsigned char> output_buffer(image_input.size());
-		//4.3 Copy the result from device to host
-		////std::cout << "Copying..." << std::endl;
-
-		////queue.enqueueReadBuffer(output_buffer, CL_TRUE, 0, output_size, &output[0]);
-
-		////std::cout << "Buffer: " << output << std::endl;
-		//Img<unsigned char> output_image(output_buffer.data(), image_input.width(), image_input.height(), image_input.depth(), image_input.spectrum());
-		//CImgDisplay disp_output(output_image,"output");
-
-		/*while (!disp_input.is_closed()) {
-			disp_input.wait(1);
-		}*/
-
-		// Allows the closing of either the input or output image to continue to program shutdown
-		//while (!disp_input.is_closed() && !disp_output.is_closed() && !disp_input.is_keyESC() && !disp_output.is_keyESC()) {
-		//	// Keeps the GUI window for the input and output window displaying
-		//    disp_input.wait(1);
-		//    disp_output.wait(1);
-	 //   }		
-
+		*/
 	}
 	catch (const cl::Error& err) {
 		// Handle any exceptions that occur during build/runtime
