@@ -82,11 +82,25 @@ kernel void bin_normalise(global const uchar* A, global uchar* B) {
 	B[id] = inverted_value;
 }
 
+
+// Normalise a histogram bin from a range of 0-699392 to 0-255
 kernel void norm_bins(global const int* A, global int* B) {
 	int id = get_global_id(0);
-	//float calc = 0.00036460239f; // (float)255/(float)699392 // Must use double, not float!
+
+	// Calculate the value to multiply each bin value by. Use double instead of float for precision
 	double calc = (double)255/(double)699392; // (float)255/(float)699392
 
-
+	// Return the normalised value in buffer B
 	B[id] = A[id] * calc;
+}
+
+// Invert the current pixel intensity value for each pixel in a CImg array
+kernel void lut(global  uchar* A, global uchar* B, global int* C) {
+	int id = get_global_id(0);
+	
+	// A[id] is our bin greyscale value from 0-255
+	B[id] = C[A[id]];
+	
+	//B[id] = A[id];
+	//B[id] = A[id];
 }

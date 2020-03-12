@@ -79,6 +79,7 @@ int main(int argc, char **argv) {
 		queue.enqueueWriteBuffer(dev_image_input, CL_TRUE, 0, image_input.size(), &image_input.data()[0]);
 //		queue.enqueueWriteBuffer(dev_convolution_mask, CL_TRUE, 0, convolution_mask.size()*sizeof(float), &convolution_mask[0]);
 
+		std::cout << "Size: 	" << image_input.size() << std::endl;
 		//4.2 Setup and execute the kernel (i.e. device code)
 		cl::Kernel kernel = cl::Kernel(program, "invert");
 		kernel.setArg(0, dev_image_input);

@@ -43,6 +43,7 @@ int main(int argc, char **argv) {
 	try {
 		// Returns a pointer to a image location from its filename
 		CImg<unsigned char> inputImgPtr(inputImgFilename.c_str());
+		CImgDisplay inputImgDisp(inputImgPtr, "Input Image");
 
 		cout << "Height: " << inputImgPtr.height() << "\nWidth: " << inputImgPtr.width() << endl;
 		cout << "Pixel Count (H*W): " << inputImgPtr.height() * inputImgPtr.width() << endl;
@@ -163,15 +164,36 @@ int main(int argc, char **argv) {
 		// Copy the result from device to host
 		queue.enqueueReadBuffer(normCumHistBuffer, CL_TRUE, 0, normCumHistBinSize, &normCumHistBin[0]);
 
-		cout << "\nNorm. Cum. Histogram:\n" << normCumHistBin << "\n\n" << endl;
+		cout << "\nNormalised Cumalitive Histogram:\n" << normCumHistBin << "\n\n" << endl;
 
+		/* Part 4 - Image from LUT */
 
 		// Create an output buffer to store values copied from device once computation is complete
-		////vector<unsigned char> output_buffer(inputImgPtr.size());
+		vector<unsigned char> outputImgVect(inputImgPtr.size());
+		// Create a new buffer to hold data about our output image
+		cl::Buffer outputImgBuffer(context, CL_MEM_READ_WRITE, inputImgPtr.size()); //should be the same as input image
 
-		// Copy result to the buffer just defined
-		////queue.enqueueReadBuffer(image_output_buffer, CL_TRUE, 0, output_buffer.size(), &output_buffer.data()[0]); // Not needed yet
+		// Write normalised cumulative histogram data to our predefined buffer
+		queue.enqueueWriteBuffer(normCumHistBuffer, CL_TRUE, 0, normCumHistBinSize, &normCumHistBin[0]);
 		
+		cl::Kernel kernelLut = cl::Kernel(program, "lut"); // Load the LUT kernel defined in my_kernels
+		kernelLut.setArg(0, inputImgBuffer); // Load in our normalised histogram buffer bin
+		kernelLut.setArg(1, outputImgBuffer); // Load in our input image in buffer form
+		kernelLut.setArg(2, normCumHistBuffer); // Load in our output image buffer for writing to
+
+		queue.enqueueNDRangeKernel(kernelLut, cl::NullRange, cl::NDRange(inputImgPtr.size()), cl::NullRange);
+
+		//4.3 Copy the result from device to host
+		queue.enqueueReadBuffer(outputImgBuffer, CL_TRUE, 0, outputImgVect.size(), & outputImgVect.data()[0]);
+
+		CImg<unsigned char> output_image(outputImgVect.data(), inputImgPtr.width(), inputImgPtr.height(), inputImgPtr.depth(), inputImgPtr.spectrum());
+		CImgDisplay outputImgDisp(output_image, "Output Image");
+		
+
+		while (!inputImgDisp.is_closed() && !outputImgDisp.is_closed() && !inputImgDisp.is_keyESC() && !outputImgDisp.is_keyESC()) {
+			inputImgDisp.wait(1);
+			inputImgDisp.wait(1);
+		}
 
 		/* PART TWO - CUMULATIVE HISTOGRAM */
 
