@@ -45,7 +45,7 @@ int main(int argc, char **argv) {
 		CImg<unsigned char> inputImgPtr(inputImgFilename.c_str());
 		CImgDisplay inputImgDisp(inputImgPtr, "Input Image");
 
-		cout << "Height: " << inputImgPtr.height() << "\nWidth: " << inputImgPtr.width() << endl;
+		cout << "Width: " << inputImgPtr.width() << ", Height: " << inputImgPtr.height() << endl;
 		cout << "Pixel Count (H*W): " << inputImgPtr.height() * inputImgPtr.width() << endl;
 
 		// Select platform and device to use to create a context from
@@ -54,8 +54,9 @@ int main(int argc, char **argv) {
 		// Display the selected device
 		std::cout << "Running on " << GetPlatformName(platform_id) << ", " << GetDeviceName(platform_id, device_id) << std::endl;
 
-		// Create a queue to which we will push commands for the device
-		cl::CommandQueue queue(context);
+		// Create a queue to which we will push commands for the device & enable profiling
+		cl::CommandQueue queue(context, CL_QUEUE_PROFILING_ENABLE);
+		// Create a CL Event to attatch to queue commands as our profiler
 
 		// Create a program to combine context and kernels
 		cl::Program::Sources sources;
@@ -88,8 +89,8 @@ int main(int argc, char **argv) {
 //		cl::Buffer image_output_buffer(context, CL_MEM_READ_ONLY, inputImgPtr.size()); // Not in use yet!
 //		cl::Buffer scan_histogram_buffer(context, CL_MEM_READ_WRITE, histBinSize); // Not in use yet!
 
-		std::cout << "Bin Size: " << histBin.size() << std::endl;
-		std::cout << "Bin Size in Bytes: " << histBinSize << std::endl;
+		////std::cout << "Bin Size: " << histBin.size() << std::endl;
+		////std::cout << "Bin Size in Bytes: " << histBinSize << std::endl;
 
 		// Write image input data to our device's memory via our image input buffer
 		queue.enqueueWriteBuffer(inputImgBuffer, CL_TRUE, 0, inputImgPtr.size(), &inputImgPtr.data()[0]);
@@ -101,13 +102,17 @@ int main(int argc, char **argv) {
 		kernelHist.setArg(0, inputImgBuffer);  // Pass in our image buffer as our input
 		kernelHist.setArg(1, histBuffer);  // Pass in our histogram buffer as our output
 
+
+		cl::Event prof_event;
 		// Execute our histogram kernel on the selected device
-		queue.enqueueNDRangeKernel(kernelHist, cl::NullRange, cl::NDRange(inputImgPtr.size()), cl::NullRange);
+		queue.enqueueNDRangeKernel(kernelHist, cl::NullRange, cl::NDRange(inputImgPtr.size()), cl::NullRange, NULL, &prof_event);
+
+		std::cout << "Kernel execution time [ns]:" << prof_event.getProfilingInfo<CL_PROFILING_COMMAND_END>() - prof_event.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
 
 		// Write the histogram result from our device memory to our vector via the histogram buffer
 		queue.enqueueReadBuffer(histBuffer, CL_TRUE, 0, histBinSize, &histBin[0]);
 
-		std::cout << "Original Histogram:\n" << histBin << "\n\n" << std::endl;
+		////std::cout << "Original Histogram:\n" << histBin << "\n\n" << std::endl;
 
 		/* Part 2 - Cumulative Histogram Generation */
 
@@ -137,34 +142,34 @@ int main(int argc, char **argv) {
 		// Copy the result from device to host
 		queue.enqueueReadBuffer(cumHistBuffer, CL_TRUE, 0, cumHistBinSize, &cumHistBin[0]);
 
-		std::cout << "Cumulative Histogram:\n" << cumHistBin << "\n\n" << std::endl;
+		////std::cout << "Cumulative Histogram:\n" << cumHistBin << "\n\n" << std::endl;
 
 		/* Part 3 - Cumulative Histogram Normalisation */
 
 		// Create a new vector to store our cumulative bin values
-		std::vector<int> normCumHistBin(cumHistBin.size());
-		size_t normCumHistBinSize = normCumHistBin.size() * sizeof(int);
+		std::vector<int> normHistBin(cumHistBin.size());
+		size_t normHistBinSize = normHistBin.size() * sizeof(int);
 
 		// Create a new buffer to hold data about our normalised cumulative histogram on our device
-		cl::Buffer normCumHistBuffer(context, CL_MEM_READ_WRITE, normCumHistBinSize);
+		cl::Buffer normHistBuffer(context, CL_MEM_READ_WRITE, normHistBinSize);
 
 		// Write histogram data to our device's memory via our cumulative histogram buffer
 		queue.enqueueWriteBuffer(cumHistBuffer, CL_TRUE, 0, cumHistBinSize, &cumHistBin[0]);
 		// Write normalised cumulative histogram bin buffer filled  with 0's to our devices memory
-		queue.enqueueFillBuffer(normCumHistBuffer, 0, 0, normCumHistBinSize);
+		queue.enqueueFillBuffer(normHistBuffer, 0, 0, normHistBinSize);
 
 		// Set up normalised cumulative kernel for device execution
 		cl::Kernel kernelCumNormHist = cl::Kernel(program, "norm_bins"); // Load the norm_bins kernel defined in my_kernels
 		kernelCumNormHist.setArg(0, cumHistBuffer); // Load in the cumulative histogram buffer
-		kernelCumNormHist.setArg(1, normCumHistBuffer); // Pass in our normalised buffer filled with 0's
+		kernelCumNormHist.setArg(1, normHistBuffer); // Pass in our normalised buffer filled with 0's
 
 		// Execute the cumulative histogram kernel on the selected device
 		queue.enqueueNDRangeKernel(kernelCumNormHist, cl::NullRange, cl::NDRange(cumHistBin.size()), cl::NDRange(256));
 
 		// Copy the result from device to host
-		queue.enqueueReadBuffer(normCumHistBuffer, CL_TRUE, 0, normCumHistBinSize, &normCumHistBin[0]);
+		queue.enqueueReadBuffer(normHistBuffer, CL_TRUE, 0, normHistBinSize, &normHistBin[0]);
 
-		cout << "\nNormalised Cumalitive Histogram:\n" << normCumHistBin << "\n\n" << endl;
+		////cout << "\nNormalised Cumalitive Histogram:\n" << normHistBin << "\n\n" << endl;
 
 		/* Part 4 - Image from LUT */
 
@@ -174,12 +179,12 @@ int main(int argc, char **argv) {
 		cl::Buffer outputImgBuffer(context, CL_MEM_READ_WRITE, inputImgPtr.size()); //should be the same as input image
 
 		// Write normalised cumulative histogram data to our predefined buffer
-		queue.enqueueWriteBuffer(normCumHistBuffer, CL_TRUE, 0, normCumHistBinSize, &normCumHistBin[0]);
+		queue.enqueueWriteBuffer(normHistBuffer, CL_TRUE, 0, normHistBinSize, &normHistBin[0]);
 		
 		cl::Kernel kernelLut = cl::Kernel(program, "lut"); // Load the LUT kernel defined in my_kernels
 		kernelLut.setArg(0, inputImgBuffer); // Load in our normalised histogram buffer bin
 		kernelLut.setArg(1, outputImgBuffer); // Load in our input image in buffer form
-		kernelLut.setArg(2, normCumHistBuffer); // Load in our output image buffer for writing to
+		kernelLut.setArg(2, normHistBuffer); // Load in our output image buffer for writing to
 
 		queue.enqueueNDRangeKernel(kernelLut, cl::NullRange, cl::NDRange(inputImgPtr.size()), cl::NullRange);
 
@@ -194,46 +199,6 @@ int main(int argc, char **argv) {
 			inputImgDisp.wait(1);
 			inputImgDisp.wait(1);
 		}
-
-		/* PART TWO - CUMULATIVE HISTOGRAM */
-
-		
-
-		//std::vector<int> bin_test(256, 1);
-
-		//std::cout << "Bin Test:" << bin_test << "\n" << std::endl;
-
-
-		//// Fill histogram bin buffer with 0's on device memory
-		//queue.enqueueFillBuffer(scan_histogram_buffer, 0, 0, histBinSize);
-
-		//queue.enqueueWriteBuffer(histBuffer, CL_TRUE, 0, bin_test.size() * sizeof(int), &bin_test[0]);
-
-		//// Redefine the kernel as our second step
-		//cl::Kernel kernel_scan = cl::Kernel(program, "scan_add");
-		//kernel_scan.setArg(0, histBuffer);
-		//kernel_scan.setArg(1, scan_histogram_buffer);
-		//kernel_scan.setArg(2, cl::Local(bin_test.size() * sizeof(int)));//local memory size
-		//kernel_scan.setArg(3, cl::Local(bin_test.size() * sizeof(int)));//local memory size
-
-		//// Enqueues a command to execute a kernel on a device
-		//queue.enqueueNDRangeKernel(kernel_scan, cl::NullRange, cl::NDRange(histBinSize), cl::NDRange(256));
-
-		//queue.enqueueReadBuffer(scan_histogram_buffer, CL_TRUE, 0, bin_test.size(), &bin[0]);
-
-		//std::cout << "\nCumulative Bin: " << bin << std::endl;
-
-		// Create a new CImg and window to display the results
-		////CImg<unsigned char>image_output(output_buffer.data(), inputImgPtr.width(), inputImgPtr.height(), inputImgPtr.depth(), inputImgPtr.spectrum());
-		////CImgDisplay disp_output(image_output, "output");
-
-		// Requires both the input and output image to be closed before the application is terminated
-		/*
-		while (!disp_input.is_closed() && !disp_output.is_closed() && !disp_input.is_keyESC() && !disp_output.is_keyESC()) {
-			disp_input.wait(1);
-			disp_output.wait(1);
-		}
-		*/
 	}
 	catch (const cl::Error& err) {
 		// Handle any exceptions that occur during build/runtime
