@@ -76,5 +76,17 @@ kernel void bin_normalise(global const uchar* A, global uchar* B) {
 
 	// Take a max value of 255 and subtract a value (0-255) from it to get the inverted value, e.g 255 - 0 = 255; 255 - 100 = 155
 	int inverted_value = 255 - A[id];
+
+	printf("A: %i, ", A[id]);
+	printf("B: %i\n", B[id]);
 	B[id] = inverted_value;
+}
+
+kernel void norm_bins(global const int* A, global int* B) {
+	int id = get_global_id(0);
+	//float calc = 0.00036460239f; // (float)255/(float)699392 // Must use double, not float!
+	double calc = (double)255/(double)699392; // (float)255/(float)699392
+
+
+	B[id] = A[id] * calc;
 }
