@@ -69,3 +69,12 @@ kernel void scan_add(__global const int* A, global int* B, local int* scratch_1,
 	//copy the cache to output array
 	B[id] = scratch_1[lid];
 }
+
+// TODO: Finish this
+kernel void bin_normalise(global const uchar* A, global uchar* B) {
+	int id = get_global_id(0);
+
+	// Take a max value of 255 and subtract a value (0-255) from it to get the inverted value, e.g 255 - 0 = 255; 255 - 100 = 155
+	int inverted_value = 255 - A[id];
+	B[id] = inverted_value;
+}

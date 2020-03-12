@@ -5,6 +5,7 @@
 #include "CImg.h"
 
 using namespace cimg_library;
+using namespace std;
 
 // Returns console information about different flags that can be passed to the function
 void print_help() {
@@ -42,6 +43,9 @@ int main(int argc, char **argv) {
 	try {
 		// Returns a pointer to a image location from its filename
 		CImg<unsigned char> inputImgPtr(inputImgFilename.c_str());
+
+		cout << "Height: " << inputImgPtr.height() << "\nWidth: " << inputImgPtr.width() << endl;
+		cout << "Pixel Count (H*W): " << inputImgPtr.height() * inputImgPtr.width() << endl;
 
 		// Select platform and device to use to create a context from
 		cl::Context context = GetContext(platform_id, device_id);
@@ -118,10 +122,13 @@ int main(int argc, char **argv) {
 		// Write cumulative histogram bin buffer filled with 0's to our devices memory
 		queue.enqueueFillBuffer(cumHistBuffer, 0, 0, cumHistBinSize);
 
+		////cl_int test_value = 5;
+
 		// Set up cumulative kernel for device execution
 		cl::Kernel kernelCumHist = cl::Kernel(program, "scan_add_atomic"); // Load the scan_add_atomic kernel defined in my_kernels
 		kernelCumHist.setArg(0, histBuffer); // Pass in our histogram buffer as our input
 		kernelCumHist.setArg(1, cumHistBuffer); // Pass in our cumulative histogram buffer as our output
+		////kernelCumHist.setArg(2, sizeof(cl_int), &test_value); // Test
 
 		// Execute the cumulative histogram kernel on the selected device
 		queue.enqueueNDRangeKernel(kernelCumHist, cl::NullRange, cl::NDRange(histBin.size()), cl::NDRange(256));
@@ -130,6 +137,32 @@ int main(int argc, char **argv) {
 		queue.enqueueReadBuffer(cumHistBuffer, CL_TRUE, 0, cumHistBinSize, &cumHistBin[0]);
 
 		std::cout << "Cumulative Histogram:\n" << cumHistBin << "\n\n" << std::endl;
+
+		/* Part 3 - Cumulative Histogram Normalisation */
+
+		std::vector<int> normHistBin(cumHistBin.size()); // Create a vector to hold our normalised values
+		size_t normHistBinSize = cumHistBinSize; // We can assign the size as the previously calculated one as it stores the same data
+
+		// Create a new buffer to hold data about our normalised cumulative histogram on our device
+		cl::Buffer normHistBuffer(context, CL_MEM_READ_WRITE, normHistBinSize);
+
+		// Write cumulative histogram data to our device's memory via our cumulitive histogram buffer
+		queue.enqueueWriteBuffer(cumHistBuffer, CL_TRUE, 0, cumHistBinSize, &cumHistBin[0]);
+		// Write normalised histogram bin buffer filled with 0's to our device's memory
+		queue.enqueueFillBuffer(normHistBuffer, 0, 0, normHistBinSize);
+
+		// Set up normalised kernel for device execution
+		cl::Kernel kernelNormHist = cl::Kernel(program, "bin_normalise"); // Load the bin_normalise kernel defined in my_kernels
+		kernelNormHist.setArg(0, cumHistBuffer); // Pass in the cumulative histogram buffer as our input
+		kernelNormHist.setArg(1, normHistBuffer); // Pass in the normalised histogram buffer as our output
+
+		// Execute the normalised histogram kernel on the selected device
+		queue.enqueueNDRangeKernel(kernelNormHist, cl::NullRange, cl::NDRange(normHistBin.size()), cl::NDRange(256));
+
+		// Copy the result from device to host
+		queue.enqueueReadBuffer(normHistBuffer, CL_TRUE, 0, normHistBinSize, &normHistBin[0]);
+
+		cout << "Normalised Cumulative Histogram:\n" << normHistBin << "\n\n" << endl;
 
 		// Create an output buffer to store values copied from device once computation is complete
 		////vector<unsigned char> output_buffer(inputImgPtr.size());
