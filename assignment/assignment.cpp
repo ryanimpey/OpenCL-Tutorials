@@ -102,12 +102,12 @@ int main(int argc, char **argv) {
 		kernelHist.setArg(0, inputImgBuffer);  // Pass in our image buffer as our input
 		kernelHist.setArg(1, histBuffer);  // Pass in our histogram buffer as our output
 
+		cl::Device device = context.getInfo<CL_CONTEXT_DEVICES>()[0]; //get device
+		std::cout << "Preferred Size:";
+		cerr << kernelHist.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(device) << endl; //get info
 
 		cl::Event prof_event;
-		// Execute our histogram kernel on the selected device
 		queue.enqueueNDRangeKernel(kernelHist, cl::NullRange, cl::NDRange(inputImgPtr.size()), cl::NullRange, NULL, &prof_event);
-
-		std::cout << "Kernel execution time [ns]:" << prof_event.getProfilingInfo<CL_PROFILING_COMMAND_END>() - prof_event.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
 
 		// Write the histogram result from our device memory to our vector via the histogram buffer
 		queue.enqueueReadBuffer(histBuffer, CL_TRUE, 0, histBinSize, &histBin[0]);
@@ -193,6 +193,8 @@ int main(int argc, char **argv) {
 
 		CImg<unsigned char> output_image(outputImgVect.data(), inputImgPtr.width(), inputImgPtr.height(), inputImgPtr.depth(), inputImgPtr.spectrum());
 		CImgDisplay outputImgDisp(output_image, "Output Image");
+
+		std::cout << "Kernel execution time [ns]:" << prof_event.getProfilingInfo<CL_PROFILING_COMMAND_END>() - prof_event.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
 		
 
 		while (!inputImgDisp.is_closed() && !outputImgDisp.is_closed() && !inputImgDisp.is_keyESC() && !outputImgDisp.is_keyESC()) {
