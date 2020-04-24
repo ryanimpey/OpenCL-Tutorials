@@ -60,7 +60,7 @@ int main(int argc, char **argv) {
 
 		// Create a program to combine context and kernels
 		cl::Program::Sources sources;
-		AddSources(sources, "kernels/my_kernels.cl");
+		AddSources(sources, "kernels/assign_kernels.cl");
 
 		// Create a program to combine context and kernels
 		cl::Program program(context, sources);
