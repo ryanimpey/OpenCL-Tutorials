@@ -92,8 +92,11 @@ int main(int argc, char **argv) {
 		////std::cout << "Bin Size: " << histBin.size() << std::endl;
 		////std::cout << "Bin Size in Bytes: " << histBinSize << std::endl;
 
+		cl::Event imgBufferEvent;
+		cl::Event histBinBufferEvent;
+
 		// Write image input data to our device's memory via our image input buffer
-		queue.enqueueWriteBuffer(inputImgBuffer, CL_TRUE, 0, inputImgPtr.size(), &inputImgPtr.data()[0]);
+		queue.enqueueWriteBuffer(inputImgBuffer, CL_TRUE, 0, inputImgPtr.size(), &inputImgPtr.data()[0], NULL, &imgBufferEvent);
 		// Write histogram bin buffer filled with 0's to our device's memory
 		queue.enqueueFillBuffer(histBuffer, 0, 0, histBinSize);
 
@@ -110,7 +113,10 @@ int main(int argc, char **argv) {
 		queue.enqueueNDRangeKernel(kernelHist, cl::NullRange, cl::NDRange(inputImgPtr.size()), cl::NullRange, NULL, &prof_event);
 
 		// Write the histogram result from our device memory to our vector via the histogram buffer
-		queue.enqueueReadBuffer(histBuffer, CL_TRUE, 0, histBinSize, &histBin[0]);
+		queue.enqueueReadBuffer(histBuffer, CL_TRUE, 0, histBinSize, &histBin[0], NULL, &histBinBufferEvent);
+
+		cout << "Image Buffer Memory Write Time [ns]: " << imgBufferEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - imgBufferEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
+		cout << "Histogram Buffer Memory Write Time [ns]: " << histBinBufferEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - histBinBufferEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
 
 		////std::cout << "Original Histogram:\n" << histBin << "\n\n" << std::endl;
 
@@ -195,7 +201,7 @@ int main(int argc, char **argv) {
 		CImgDisplay outputImgDisp(output_image, "Output Image");
 
 		std::cout << "Kernel execution time [ns]:" << prof_event.getProfilingInfo<CL_PROFILING_COMMAND_END>() - prof_event.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
-		
+		std::cout << "Profile info: " << GetFullProfilingInfo(prof_event, ProfilingResolution::PROF_US) << std::endl;
 
 		while (!inputImgDisp.is_closed() && !outputImgDisp.is_closed() && !inputImgDisp.is_keyESC() && !outputImgDisp.is_keyESC()) {
 			inputImgDisp.wait(1);

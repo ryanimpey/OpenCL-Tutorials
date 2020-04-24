@@ -65,6 +65,11 @@ int main(int argc, char **argv) {
 		//host - output
 		std::vector<int> C(vector_elements);
 
+		// Event listeners
+		cl::Event event_A;
+		cl::Event event_B;
+		cl::Event event_C;
+
 		//device - buffers
 		cl::Buffer buffer_A(context, CL_MEM_READ_ONLY, vector_size);
 		cl::Buffer buffer_B(context, CL_MEM_READ_ONLY, vector_size);
@@ -73,9 +78,8 @@ int main(int argc, char **argv) {
 		//Part 4 - device operations
 
 		//4.1 Copy arrays A and B to device memory
-		queue.enqueueWriteBuffer(buffer_A, CL_TRUE, 0, vector_size, &A[0]);
-		queue.enqueueWriteBuffer(buffer_B, CL_TRUE, 0, vector_size, &B[0]);
-
+		queue.enqueueWriteBuffer(buffer_A, CL_TRUE, 0, vector_size, &A[0], NULL, &event_A);
+		queue.enqueueWriteBuffer(buffer_B, CL_TRUE, 0, vector_size, &B[0], NULL, &event_B);
 
 		//4.2 Setup and execute the kernel (i.e. device code)
 		cl::Kernel kernel_add = cl::Kernel(program, "add");
@@ -91,9 +95,13 @@ int main(int argc, char **argv) {
 		queue.enqueueNDRangeKernel(kernel_add, cl::NullRange, cl::NDRange(vector_elements), cl::NullRange, NULL, &prof_event);
 
 		std::cout << "Kernel execution time [ns]:" << prof_event.getProfilingInfo<CL_PROFILING_COMMAND_END>() - prof_event.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
+		std::cout << "Memory transfer time [event A][ns]: " << event_A.getProfilingInfo<CL_PROFILING_COMMAND_END>() - event_A.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
+		std::cout << "Memory transfer time [event B][ns]: " << event_B.getProfilingInfo<CL_PROFILING_COMMAND_END>() - event_B.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
 
 		//4.3 Copy the result from device to host
-		queue.enqueueReadBuffer(buffer_C, CL_TRUE, 0, vector_size, &C[0]);
+		queue.enqueueReadBuffer(buffer_C, CL_TRUE, 0, vector_size, &C[0], NULL, &event_C);
+
+		std::cout << "Memory transfer time [event C][ns]: " << event_C.getProfilingInfo<CL_PROFILING_COMMAND_END>() - event_C.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
 
 		std::cout << "A = " << A << std::endl;
 		std::cout << "B = " << B << std::endl;
