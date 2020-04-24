@@ -52,6 +52,12 @@ kernel void reduce_add_3(global const int* A, global int* B, local int* scratch)
 	int lid = get_local_id(0);
 	int N = get_local_size(0);
 
+	if (id == 0) {
+		printf("IDS: %i, %i, %i\n", id, lid, N);
+	}
+
+	printf("Global ID:  %i\n", id);
+
 	//cache all N values from global memory to local memory
 	scratch[lid] = A[id];
 
@@ -196,8 +202,14 @@ kernel void block_sum(global const int* A, global int* B, int local_size) {
 kernel void scan_add_atomic(global int* A, global int* B) {
 	int id = get_global_id(0);
 	int N = get_global_size(0);
-	for (int i = id+1; i < N; i++)
+
+	if (id == 1) {
+		printf("ID: %i, N: %i", id, N);
+	}
+
+	for (int i = id + 1; i < N; i++) {
 		atomic_add(&B[i], A[id]);
+	}
 }
 
 //adjust the values stored in partial scans by adding block sums to corresponding blocks

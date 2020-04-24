@@ -58,13 +58,14 @@ int main(int argc, char **argv) {
 
 		//Part 3 - memory allocation
 		//host - input
-		std::vector<mytype> A = {1,6,5,4,3,7,8,4,3,2}; //allocate 10 elements with initial values - their sum is 10 so it should be easy to check the results!
+		std::vector<mytype> A = { 1,6,5,4,3,7,8,4,3, 9 }; //allocate 10 elements with initial values - their sum is 10 so it should be easy to check the results!
 
 		//the following part adjusts the length of the input vector so it can be run for a specific workgroup size
 		//if the total input length is divisible by the workgroup size
 		//this makes the code more efficient
 		size_t local_size = 10;
 
+		// Retrieve remaining value left over from mod
 		size_t padding_size = A.size() % local_size;
 
 		//if the input vector is not a multiple of the local_size

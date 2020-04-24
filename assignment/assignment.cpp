@@ -92,11 +92,11 @@ int main(int argc, char **argv) {
 		////std::cout << "Bin Size: " << histBin.size() << std::endl;
 		////std::cout << "Bin Size in Bytes: " << histBinSize << std::endl;
 
-		cl::Event imgBufferEvent;
-		cl::Event histBinBufferEvent;
+		cl::Event inputEvent;
+		cl::Event outputEvent;
 
 		// Write image input data to our device's memory via our image input buffer
-		queue.enqueueWriteBuffer(inputImgBuffer, CL_TRUE, 0, inputImgPtr.size(), &inputImgPtr.data()[0], NULL, &imgBufferEvent);
+		queue.enqueueWriteBuffer(inputImgBuffer, CL_TRUE, 0, inputImgPtr.size(), &inputImgPtr.data()[0], NULL, &inputEvent);
 		// Write histogram bin buffer filled with 0's to our device's memory
 		queue.enqueueFillBuffer(histBuffer, 0, 0, histBinSize);
 
@@ -113,10 +113,10 @@ int main(int argc, char **argv) {
 		queue.enqueueNDRangeKernel(kernelHist, cl::NullRange, cl::NDRange(inputImgPtr.size()), cl::NullRange, NULL, &prof_event);
 
 		// Write the histogram result from our device memory to our vector via the histogram buffer
-		queue.enqueueReadBuffer(histBuffer, CL_TRUE, 0, histBinSize, &histBin[0], NULL, &histBinBufferEvent);
+		queue.enqueueReadBuffer(histBuffer, CL_TRUE, 0, histBinSize, &histBin[0], NULL, &outputEvent);
 
-		cout << "Image Buffer Memory Write Time [ns]: " << imgBufferEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - imgBufferEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
-		cout << "Histogram Buffer Memory Write Time [ns]: " << histBinBufferEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - histBinBufferEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
+		cout << "Image Buffer Memory Write Time [ns]: " << inputEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - inputEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
+		cout << "Histogram Buffer Memory Write Time [ns]: " << outputEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - outputEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
 
 		////std::cout << "Original Histogram:\n" << histBin << "\n\n" << std::endl;
 
@@ -130,23 +130,28 @@ int main(int argc, char **argv) {
 		cl::Buffer cumHistBuffer(context, CL_MEM_READ_WRITE, cumHistBinSize);
 
 		// Write histogram data to our device's memory via our histogram buffer
-		queue.enqueueWriteBuffer(histBuffer, CL_TRUE, 0, histBinSize, &histBin[0]);
+		queue.enqueueWriteBuffer(histBuffer, CL_TRUE, 0, histBinSize, &histBin[0], NULL, &inputEvent);
 		// Write cumulative histogram bin buffer filled with 0's to our devices memory
 		queue.enqueueFillBuffer(cumHistBuffer, 0, 0, cumHistBinSize);
 
 		////cl_int test_value = 5;
 
 		// Set up cumulative kernel for device execution
-		cl::Kernel kernelCumHist = cl::Kernel(program, "scan_add_atomic"); // Load the scan_add_atomic kernel defined in my_kernels
+		cl::Kernel kernelCumHist = cl::Kernel(program, "scan_hs"); // Load the scan_add_atomic kernel defined in my_kernels
 		kernelCumHist.setArg(0, histBuffer); // Pass in our histogram buffer as our input
 		kernelCumHist.setArg(1, cumHistBuffer); // Pass in our cumulative histogram buffer as our output
-		////kernelCumHist.setArg(2, sizeof(cl_int), &test_value); // Test
+
+		cl::Event cumHistEvent;
 
 		// Execute the cumulative histogram kernel on the selected device
-		queue.enqueueNDRangeKernel(kernelCumHist, cl::NullRange, cl::NDRange(histBin.size()), cl::NDRange(256));
+		queue.enqueueNDRangeKernel(kernelCumHist, cl::NullRange, cl::NDRange(histBin.size()), cl::NDRange(256), NULL, &cumHistEvent);
 
 		// Copy the result from device to host
-		queue.enqueueReadBuffer(cumHistBuffer, CL_TRUE, 0, cumHistBinSize, &cumHistBin[0]);
+		queue.enqueueReadBuffer(cumHistBuffer, CL_TRUE, 0, cumHistBinSize, &cumHistBin[0], NULL, &outputEvent);
+
+		cout << "Histogram Buffer Write Time [ns]: " << inputEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - inputEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
+		cout << "Cumulative Histogram Write Time [ns]: " << outputEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - outputEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
+
 
 		////std::cout << "Cumulative Histogram:\n" << cumHistBin << "\n\n" << std::endl;
 
@@ -201,6 +206,7 @@ int main(int argc, char **argv) {
 		CImgDisplay outputImgDisp(output_image, "Output Image");
 
 		std::cout << "Kernel execution time [ns]:" << prof_event.getProfilingInfo<CL_PROFILING_COMMAND_END>() - prof_event.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
+		std::cout << "scan_add_atomic execution time [ns]:" << prof_event.getProfilingInfo<CL_PROFILING_COMMAND_END>() - prof_event.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
 		std::cout << "Profile info: " << GetFullProfilingInfo(prof_event, ProfilingResolution::PROF_US) << std::endl;
 
 		while (!inputImgDisp.is_closed() && !outputImgDisp.is_closed() && !inputImgDisp.is_keyESC() && !outputImgDisp.is_keyESC()) {
