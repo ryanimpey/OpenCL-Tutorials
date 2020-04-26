@@ -58,7 +58,7 @@ int main(int argc, char **argv) {
 
 		//Part 3 - memory allocation
 		//host - input
-		std::vector<mytype> A = { 1,6,5,4,3,7,8,4,3, 9 }; //allocate 10 elements with initial values - their sum is 10 so it should be easy to check the results!
+		std::vector<mytype> A = { 1,6,4,4,4,7,8,4,3, 9 }; //allocate 10 elements with initial values - their sum is 10 so it should be easy to check the results!
 
 		//the following part adjusts the length of the input vector so it can be run for a specific workgroup size
 		//if the total input length is divisible by the workgroup size
@@ -97,11 +97,10 @@ int main(int argc, char **argv) {
 		queue.enqueueFillBuffer(buffer_B, 0, 0, output_size);
 
 		//4.2 Setup and execute all kernels (i.e. device code)
-		cl::Kernel kernel_1 = cl::Kernel(program, "scan_add");
+		cl::Kernel kernel_1 = cl::Kernel(program, "hist_local_simple");
 		kernel_1.setArg(0, buffer_A);
 		kernel_1.setArg(1, buffer_B);
-		kernel_1.setArg(2, cl::Local(local_size*sizeof(mytype)));//local memory size
-		kernel_1.setArg(3, cl::Local(local_size*sizeof(mytype)));//local memory size
+		kernel_1.setArg(2, cl::Local(local_size));
 
 		//call all kernels in a sequence
 		queue.enqueueNDRangeKernel(kernel_1, cl::NullRange, cl::NDRange(input_elements), cl::NDRange(local_size));

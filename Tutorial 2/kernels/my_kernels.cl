@@ -11,6 +11,11 @@ kernel void filter_r(global const uchar* A, global uchar* B) {
 	int image_size = get_global_size(0)/3; //each image consists of 3 colour channels
 	int colour_channel = id / image_size; // 0 - red, 1 - green, 2 - blue
 
+	if (id == 1) {
+		printf("Global size: %i\n", get_global_size(0));
+		printf("ID: %i. Size: %i", id, image_size);
+	}
+
 	// Exclusively copy red colour channels over to our output image's buffer
 	if (colour_channel == 0) {
 		B[id] = A[id];

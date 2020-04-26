@@ -112,6 +112,22 @@ kernel void hist_simple(global const int* A, global int* H) {
 	atomic_inc(&H[bin_index]);//serial operation, not very efficient!
 }
 
+kernel void hist_local_simple(global const int* A, global int* H, local int* LH, int nr_bins) {
+	int id = get_global_id(0);
+	int lid = get_local_id(0);
+	int bin_index = A[id];
+
+	//clear the scratch bins
+	barrier(CLK_LOCAL_MEM_FENCE);
+	atomic_inc(&LH[bin_index]);
+	barrier(CLK_LOCAL_MEM_FENCE);
+
+	if (id < nr_bins) {
+		//combine all local hist into a global one
+		atomic_add(&H[id], LH[id]);
+	}
+}
+
 //Hillis-Steele basic inclusive scan
 //requires additional buffer B to avoid data overwrite 
 kernel void scan_hs(global int* A, global int* B) {
