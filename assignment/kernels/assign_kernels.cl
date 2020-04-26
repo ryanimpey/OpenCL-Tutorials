@@ -7,6 +7,22 @@ kernel void histogram(global const uchar* A, global int* H) {
 	atomic_inc(&H[A[id]]);
 }
 
+kernel void hist_local_simple(global const int* A, global int* H, local int* LH, int nr_bins) {
+	int id = get_global_id(0);
+	int lid = get_local_id(0);
+	int bin_index = A[id];
+
+	//clear the scratch bins
+	barrier(CLK_LOCAL_MEM_FENCE);
+	atomic_inc(&LH[bin_index]);
+	barrier(CLK_LOCAL_MEM_FENCE);
+
+	if (id < nr_bins) {
+		//combine all local hist into a global one
+		atomic_add(&H[id], LH[id]);
+	}
+}
+
 //simple exclusive serial scan based on atomic operations - sufficient for small number of elements
 kernel void scan_add_atomic(global int* A, global int* B) {
 	int id = get_global_id(0);
@@ -20,8 +36,7 @@ kernel void scan_add_atomic(global int* A, global int* B) {
 		atomic_add(&B[i], A[id]);
 }
 
-// Hillis-Steele Scan
-// Requires additional buffer C to avoid data overwrite, final result stored in B
+// Hillis-Steele Histogram Scan
 kernel void scan_hs(global int* input, global int* output) {
 	int id = get_global_id(0);
 	int N = get_global_size(0);
@@ -33,9 +48,9 @@ kernel void scan_hs(global int* input, global int* output) {
 			output[id] += input[id - stride];
 		}
 
-		//sync the step
+		// Globally sync steps
 		barrier(CLK_GLOBAL_MEM_FENCE);
-		//swap A & B between steps
+		// Swap values with help of temp value
 		temp = input;
 		input = output;
 		output = temp;
@@ -91,14 +106,14 @@ kernel void norm_bins(global const int* A, global int* B) {
 	int id = get_global_id(0);
 
 	// Calculate the value to multiply each bin value by. Use double instead of float for precision
-	double calc = (double)255/(double)699392; // (float)255/(float)699392
+	double calc = (double)255/(double)699392;
 
 	// Return the normalised value in buffer B
 	B[id] = A[id] * calc;
 }
 
 // Invert the current pixel intensity value for each pixel in a CImg array
-kernel void lut(global  uchar* A, global uchar* B, global int* C) {
+kernel void lut(global uchar* A, global uchar* B, global int* C) {
 	int id = get_global_id(0);
 	
 	// A[id] is our bin greyscale value from 0-255
