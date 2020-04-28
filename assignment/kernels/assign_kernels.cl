@@ -70,30 +70,27 @@ kernel void scan_add_atomic(global int* A, global int* B) {
 		atomic_add(&B[i], A[id]);
 }
 
-// Hillis-Steele Histogram Scan
-kernel void scan_hs(global int* input, global int* output) {
+//Hillis-Steele basic inclusive scan
+//requires additional buffer B to avoid data overwrite 
+kernel void scan_hs(global int* A, global int* B) {
 	int id = get_global_id(0);
 	int N = get_global_size(0);
+	global int* C;
 
-	global int* temp;
-	for (int stride=1;stride<N; stride*=2) {
-		output[id] = input[id];
-		if (id >= stride) {
-			output[id] += input[id - stride];
-		}
+	for (int stride = 1; stride < N; stride *= 2) {
+		B[id] = A[id];
+		if (id >= stride)
+			B[id] += A[id - stride];
 
-		// Globally sync steps
-		barrier(CLK_GLOBAL_MEM_FENCE);
-		// Swap values with help of temp value
-		temp = input;
-		input = output;
-		output = temp;
+		barrier(CLK_GLOBAL_MEM_FENCE); //sync the step
+
+		C = A; A = B; B = C; //swap A & B between steps
 	}
 }
 
 //a double-buffered version of the Hillis-Steele inclusive scan
 //requires two additional input arguments which correspond to two local buffers
-kernel void scan_add(__global const int* A, global int* B, local int* scratch_1, local int* scratch_2) {
+kernel void scan_add(global const int* A, global int* B, local int* scratch_1, local int* scratch_2) {
 	int id = get_global_id(0);
 	int lid = get_local_id(0);
 	int N = get_local_size(0);
