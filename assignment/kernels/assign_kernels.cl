@@ -7,7 +7,45 @@ kernel void histogram(global const uchar* A, global int* H) {
 	atomic_inc(&H[A[id]]);
 }
 
-kernel void hist_local_simple(global const int* A, global int* H, local int* LH, int nr_bins) {
+// Take A as a bin value and place it into a histogram bin
+kernel void histogram_rgb(global const uchar* A, global int* H, global int* channel) {
+	int id = get_global_id(0);
+	int image_size = get_global_size(0) / 3; //each image consists of 3 colour channels
+	int colour_channel = id / image_size; // 0 - red, 1 - green, 2 - blue
+
+	if (colour_channel == *channel) {
+		atomic_inc(&H[A[id]]);
+	}
+}
+
+// Normalise a histogram bin from a range of 0-699392 to 0-255 //TODO: ASK
+kernel void norm_bins(global const int* A, global int* B, global const float* C) {
+	int id = get_global_id(0);
+
+	// Return the normalised value in buffer B
+	B[id] = A[id] * *C;
+}
+
+// Invert the current pixel intensity value for each pixel in a CImg array
+kernel void lut_rgb(global uchar* A, global uchar* O, global int* R, global int* G, global int* B) {
+	int id = get_global_id(0);
+	int image_size = get_global_size(0) / 3; //each image consists of 3 colour channels
+	int colour_channel = id / image_size; // 0 - red, 1 - green, 2 - blue
+
+	if (colour_channel == 0) {
+		O[id] = R[A[id]];
+	}
+	else if (colour_channel == 1) {
+		O[id] = G[A[id]];
+	}
+	else {
+		O[id] = B[A[id]];
+	}
+	
+	// A[id] is our bin greyscale value from 0-255
+}
+
+kernel void hist_local_simple(global const int* A, global int* H, local int* LH) {
 	int id = get_global_id(0);
 	int lid = get_local_id(0);
 	int bin_index = A[id];
@@ -17,7 +55,7 @@ kernel void hist_local_simple(global const int* A, global int* H, local int* LH,
 	atomic_inc(&LH[bin_index]);
 	barrier(CLK_LOCAL_MEM_FENCE);
 
-	if (id < nr_bins) {
+	if (id < 256) {
 		//combine all local hist into a global one
 		atomic_add(&H[id], LH[id]);
 	}
@@ -27,10 +65,6 @@ kernel void hist_local_simple(global const int* A, global int* H, local int* LH,
 kernel void scan_add_atomic(global int* A, global int* B) {
 	int id = get_global_id(0);
 	int N = get_global_size(0);
-
-	if (id == 1) {
-		printf("ID: %i, N: %i", id, N);
-	}
 
 	for (int i = id + 1; i < N; i++)
 		atomic_add(&B[i], A[id]);
@@ -68,7 +102,8 @@ kernel void scan_add(__global const int* A, global int* B, local int* scratch_1,
 	//cache all N values from global memory to local memory
 	scratch_1[lid] = A[id];
 
-	barrier(CLK_LOCAL_MEM_FENCE);//wait for all local threads to finish copying from global to local memory
+	//wait for all local threads to finish copying from global to local memory
+	barrier(CLK_LOCAL_MEM_FENCE);
 
 	for (int i = 1; i < N; i *= 2) {
 		if (lid >= i)
@@ -100,25 +135,10 @@ kernel void bin_normalise(global const uchar* A, global uchar* B) {
 	B[id] = inverted_value;
 }
 
-
-// Normalise a histogram bin from a range of 0-699392 to 0-255
-kernel void norm_bins(global const int* A, global int* B) {
-	int id = get_global_id(0);
-
-	// Calculate the value to multiply each bin value by. Use double instead of float for precision
-	double calc = (double)255/(double)699392;
-
-	// Return the normalised value in buffer B
-	B[id] = A[id] * calc;
-}
-
 // Invert the current pixel intensity value for each pixel in a CImg array
 kernel void lut(global uchar* A, global uchar* B, global int* C) {
 	int id = get_global_id(0);
 	
 	// A[id] is our bin greyscale value from 0-255
 	B[id] = C[A[id]];
-	
-	//B[id] = A[id];
-	//B[id] = A[id];
 }

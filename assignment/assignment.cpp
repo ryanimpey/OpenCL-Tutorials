@@ -18,6 +18,9 @@ void print_help() {
 	std::cerr << "  -h : print this message" << std::endl;
 }
 
+void perform_colour_op(CImg<unsigned char>, int, int);
+void perform_greyscale_op(CImg<unsigned char>, int, int);
+
 int main(int argc, char **argv) {
 	//Part 1 - handle command line options such as device selection, verbosity, etc.
 	// Define platform and device ID's as defaults incase no arguements are passed through
@@ -25,7 +28,7 @@ int main(int argc, char **argv) {
 	int device_id = 0;
 
 	// Load in our initial reference file
-	string inputImgFilename = "test.pgm";
+	string inputImgFilename = "test.ppm";
 
 	// Handle command line arguements
 	for (int i = 1; i < argc; i++) {
@@ -43,178 +46,20 @@ int main(int argc, char **argv) {
 	try {
 		// Returns a pointer to a image location from its filename
 		CImg<unsigned char> inputImgPtr(inputImgFilename.c_str());
+		bool IS_COLOUR = inputImgPtr.spectrum() == 3;
 
 		// Report image width, height, and pixel count
 		cout << "==============================\n" << "Results for " << inputImgFilename << "\n==============================" << endl;
 		cout << "Image Width: " << inputImgPtr.width() << ", Height: " << inputImgPtr.height() << ", Pixel Count: " << inputImgPtr.height() * inputImgPtr.width() << endl;
+		cout << "Image is ";
 
-		// Select platform and device to use to create a context from
-		cl::Context context = GetContext(platform_id, device_id);
-
-		// Display the selected device
-		cout << "Running on " << GetPlatformName(platform_id) << ", " << GetDeviceName(platform_id, device_id) << endl;
-
-		// Create a queue to which we will push commands for the device & enable profiling
-		cl::CommandQueue queue(context, CL_QUEUE_PROFILING_ENABLE);
-		// Create a CL Event to attatch to queue commands as our profiler
-
-		// Create a program to combine context and kernels
-		cl::Program::Sources sources;
-		AddSources(sources, "kernels/assign_kernels.cl");
-
-		// Create a program to combine context and kernels
-		cl::Program program(context, sources);
-
-		// Attempt to build the OpenCL Program and catch any errors that occur during build
-		try { 
-			program.build();
+		if (IS_COLOUR) {
+			cout << "colour (Spectrum value of 3)." << endl;
+			perform_colour_op(inputImgPtr, platform_id, device_id);
 		}
-		catch (const cl::Error& err) {
-			std::cout << "Build Status: " << program.getBuildInfo<CL_PROGRAM_BUILD_STATUS>(context.getInfo<CL_CONTEXT_DEVICES>()[0]) << std::endl;
-			std::cout << "Build Options:\t" << program.getBuildInfo<CL_PROGRAM_BUILD_OPTIONS>(context.getInfo<CL_CONTEXT_DEVICES>()[0]) << std::endl;
-			std::cout << "Build Log:\t " << program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(context.getInfo<CL_CONTEXT_DEVICES>()[0]) << std::endl;
-			throw err;
-		}
-
-		// Get our current device
-		cl::Device device = context.getInfo<CL_CONTEXT_DEVICES>()[0];
-
-		/* PART 1 - Histogram Generation */
-
-		// Create a host vector (Histogram Bin) to hold our output values
-		std::vector<int> histBin(256);
-		size_t histBinSize = histBin.size() * sizeof(int);
-
-		// Create our initial buffers for usage in OpenCL Kernels
-		cl::Buffer inputImgBuffer(context, CL_MEM_READ_ONLY, inputImgPtr.size()); // Create a read-only buffer with a size of our input image
-		cl::Buffer histBuffer(context, CL_MEM_READ_WRITE, histBinSize);  // Create a read-write buffer with the size of our histogram bin (bin_size * size(int))
-
-		// Create reusable CL events for tracking input and output results 
-		cl::Event inputEvent, outputEvent;
-
-		// Write image input data to our device's memory via our image input buffer
-		queue.enqueueWriteBuffer(inputImgBuffer, CL_TRUE, 0, inputImgPtr.size(), &inputImgPtr.data()[0], NULL, &inputEvent);
-		// Write histogram bin buffer filled with 0's to our device's memory
-		queue.enqueueFillBuffer(histBuffer, 0, 0, histBinSize);
-
-		// Set up histogram kernel for device execution
-		cl::Kernel kernelHist = cl::Kernel(program, "histogram"); // Load the histogram kernel defined in my_kernels
-		kernelHist.setArg(0, inputImgBuffer);  // Pass in our image buffer as our input
-		kernelHist.setArg(1, histBuffer);  // Pass in our histogram buffer as our output
-		//kernelHist.setArg(2, cl::Local(256)); // Create a local histogram with 256 bins
-
-		cout << "Maximum Work Group Size:";
-		cerr << kernelHist.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(device) << endl; //get info
-		cout << "Preferred Work Group Size:";
-		cerr << kernelHist.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device) << endl; //get info
-
-		cl::Event prof_event;
-		queue.enqueueNDRangeKernel(kernelHist, cl::NullRange, cl::NDRange(inputImgPtr.size()), kernelHist.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device), NULL, &prof_event);
-
-		// Write the histogram result from our device memory to our vector via the histogram buffer
-		queue.enqueueReadBuffer(histBuffer, CL_TRUE, 0, histBinSize, &histBin[0], NULL, &outputEvent);
-
-		cout << "[Part 1] Image Buffer Memory Write Time [ns]: " << inputEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - inputEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
-		cout << "[Part 1] Histogram Buffer Memory Write Time [ns]: " << outputEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - outputEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
-
-		/* PART 2 - Cumulative Histogram Generation */
-
-		// Create a new vector to store our cumulative bin values
-		std::vector<int> cumHistBin(histBin.size());
-		size_t cumHistBinSize = cumHistBin.size() * sizeof(int);
-
-		// Create a new buffer to hold data about our cumulative histogram on our device
-		cl::Buffer cumHistBuffer(context, CL_MEM_READ_WRITE, cumHistBinSize);
-
-		// Write histogram data to our device's memory via our histogram buffer
-		queue.enqueueWriteBuffer(histBuffer, CL_TRUE, 0, histBinSize, &histBin[0], NULL, &inputEvent);
-		// Write cumulative histogram bin buffer filled with 0's to our devices memory
-		queue.enqueueFillBuffer(cumHistBuffer, 0, 0, cumHistBinSize);
-
-		////cl_int test_value = 5;
-
-		// Set up cumulative kernel for device execution
-		cl::Kernel kernelCumHist = cl::Kernel(program, "scan_hs"); // Load the scan_hs kernel defined in assign_kernels
-		kernelCumHist.setArg(0, histBuffer); // Pass in our histogram buffer as our input
-		kernelCumHist.setArg(1, cumHistBuffer); // Pass in our cumulative histogram buffer as our output
-
-		cl::Event cumHistEvent;
-
-		// Execute the cumulative histogram kernel on the selected device
-		queue.enqueueNDRangeKernel(kernelCumHist, cl::NullRange, cl::NDRange(histBin.size()), kernelCumHist.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device), NULL, &cumHistEvent);
-
-		// Copy the result from device to host
-		queue.enqueueReadBuffer(cumHistBuffer, CL_TRUE, 0, cumHistBinSize, &cumHistBin[0], NULL, &outputEvent);
-
-		cout << "[Part 2] Histogram Buffer Write Time [ns]: " << inputEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - inputEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
-		cout << "[Part 2] Histogram Buffer Output Write Time [ns]: " << outputEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - outputEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
-		cout << "[Part 2] scan_hs execution time [ns]:" << cumHistEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - cumHistEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
-
-		////std::cout << "Cumulative Histogram:\n" << cumHistBin << "\n\n" << std::endl;
-
-		/* Part 3 - Cumulative Histogram Normalisation */
-
-		cl::Event cumNormHistEvent;
-
-		// Create a new vector to store our cumulative bin values
-		std::vector<int> normHistBin(cumHistBin.size());
-		size_t normHistBinSize = normHistBin.size() * sizeof(int);
-
-		// Create a new buffer to hold data about our normalised cumulative histogram on our device
-		cl::Buffer normHistBuffer(context, CL_MEM_READ_WRITE, normHistBinSize);
-
-		// Write histogram data to our device's memory via our cumulative histogram buffer
-		queue.enqueueWriteBuffer(cumHistBuffer, CL_TRUE, 0, cumHistBinSize, &cumHistBin[0], NULL, &inputEvent);
-		// Write normalised cumulative histogram bin buffer filled  with 0's to our devices memory
-		queue.enqueueFillBuffer(normHistBuffer, 0, 0, normHistBinSize);
-
-		// Set up normalised cumulative kernel for device execution
-		cl::Kernel kernelCumNormHist = cl::Kernel(program, "norm_bins"); // Load the norm_bins kernel defined in my_kernels
-		kernelCumNormHist.setArg(0, cumHistBuffer); // Load in the cumulative histogram buffer
-		kernelCumNormHist.setArg(1, normHistBuffer); // Pass in our normalised buffer filled with 0's
-
-		// Execute the cumulative histogram kernel on the selected device
-		queue.enqueueNDRangeKernel(kernelCumNormHist, cl::NullRange, cl::NDRange(cumHistBin.size()), kernelCumNormHist.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device), NULL, &cumNormHistEvent);
-
-		// Copy the result from device to host
-		queue.enqueueReadBuffer(normHistBuffer, CL_TRUE, 0, normHistBinSize, &normHistBin[0], NULL, &outputEvent);
-
-		cout << "[Part 3] Cumulative Histogram Buffer Write Time [ns]: " << inputEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - inputEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
-		cout << "[Part 3] Normalised Histogram Buffer Output Write Time [ns]: " << outputEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - outputEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
-		cout << "[Part 3] norm_bins execution time [ns]:" << cumNormHistEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - cumNormHistEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
-
-		////cout << "\nNormalised Cumalitive Histogram:\n" << normHistBin << "\n\n" << endl;
-
-		/* Part 4 - Image from LUT */
-
-		// Create an output buffer to store values copied from device once computation is complete
-		vector<unsigned char> outputImgVect(inputImgPtr.size());
-		// Create a new buffer to hold data about our output image
-		cl::Buffer outputImgBuffer(context, CL_MEM_READ_WRITE, inputImgPtr.size()); //should be the same as input image
-
-		// Write normalised cumulative histogram data to our predefined buffer
-		queue.enqueueWriteBuffer(normHistBuffer, CL_TRUE, 0, normHistBinSize, &normHistBin[0]);
-		
-		cl::Kernel kernelLut = cl::Kernel(program, "lut"); // Load the LUT kernel defined in my_kernels
-		kernelLut.setArg(0, inputImgBuffer); // Load in our normalised histogram buffer bin
-		kernelLut.setArg(1, outputImgBuffer); // Load in our input image in buffer form
-		kernelLut.setArg(2, normHistBuffer); // Load in our output image buffer for writing to
-
-		queue.enqueueNDRangeKernel(kernelLut, cl::NullRange, cl::NDRange(inputImgPtr.size()), cl::NullRange);
-
-		//4.3 Copy the result from device to host
-		queue.enqueueReadBuffer(outputImgBuffer, CL_TRUE, 0, outputImgVect.size(), & outputImgVect.data()[0]);
-
-		CImg<unsigned char> output_image(outputImgVect.data(), inputImgPtr.width(), inputImgPtr.height(), inputImgPtr.depth(), inputImgPtr.spectrum());
-		CImgDisplay inputImgDisp(inputImgPtr, "Input Image");
-		CImgDisplay outputImgDisp(output_image, "Output Image");
-
-		std::cout << "Kernel execution time [ns]:" << prof_event.getProfilingInfo<CL_PROFILING_COMMAND_END>() - prof_event.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
-		std::cout << "Profile info: " << GetFullProfilingInfo(prof_event, ProfilingResolution::PROF_US) << std::endl;
-
-		while (!inputImgDisp.is_closed() && !outputImgDisp.is_closed() && !inputImgDisp.is_keyESC() && !outputImgDisp.is_keyESC()) {
-			inputImgDisp.wait(1);
-			inputImgDisp.wait(1);
+		else {
+			cout << "greyscale (Spectrum value of 1)." << endl;
+			perform_greyscale_op(inputImgPtr, platform_id, device_id);
 		}
 	}
 	catch (const cl::Error& err) {
@@ -228,4 +73,387 @@ int main(int argc, char **argv) {
 
 	// Return 0 to terminate the application
 	return 0;
+}
+
+// Performs the required functionality for a colour image
+void perform_colour_op(CImg<unsigned char> inputImgPtr, int platform_id, int device_id) {
+	// Select platform and device to use to create a context from
+	cl::Context context = GetContext(platform_id, device_id);
+
+	// Display the selected device
+	cout << "Running on " << GetPlatformName(platform_id) << ", " << GetDeviceName(platform_id, device_id) << endl;
+
+	// Create a queue to which we will push commands for the device & enable profiling
+	cl::CommandQueue queue(context, CL_QUEUE_PROFILING_ENABLE);
+	// Create a CL Event to attatch to queue commands as our profiler
+
+	// Create a program to combine context and kernels
+	cl::Program::Sources sources;
+	AddSources(sources, "kernels/assign_kernels.cl");
+
+	// Create a program to combine context and kernels
+	cl::Program program(context, sources);
+
+	// Attempt to build the OpenCL Program and catch any errors that occur during build
+	try {
+		program.build();
+	}
+	catch (const cl::Error& err) {
+		std::cout << "Build Status: " << program.getBuildInfo<CL_PROGRAM_BUILD_STATUS>(context.getInfo<CL_CONTEXT_DEVICES>()[0]) << std::endl;
+		std::cout << "Build Options:\t" << program.getBuildInfo<CL_PROGRAM_BUILD_OPTIONS>(context.getInfo<CL_CONTEXT_DEVICES>()[0]) << std::endl;
+		std::cout << "Build Log:\t " << program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(context.getInfo<CL_CONTEXT_DEVICES>()[0]) << std::endl;
+		throw err;
+	}
+
+	// Get our current device
+	cl::Device device = context.getInfo<CL_CONTEXT_DEVICES>()[0];
+	const int BIN_SIZE = 256;
+	const size_t HIST_SIZE = BIN_SIZE * sizeof(int);
+
+	/* PART 1 - Histogram Generation [COLOUR] */
+	std::vector<int> rHistBin(BIN_SIZE), gHistBin(BIN_SIZE), bHistBin(BIN_SIZE); // Create a histogram for RGB individually
+
+	// Create our initial buffers for usage in OpenCL Kernels
+	cl::Buffer inputImgBuffer(context, CL_MEM_READ_ONLY, inputImgPtr.size()); // Create a read-only buffer with a size of our input image
+	cl::Buffer histBuffer(context, CL_MEM_READ_WRITE, HIST_SIZE);  // Create a read-write buffer with the size of our histogram bin (bin_size * size(int))
+	cl::Buffer channelBuffer(context, CL_MEM_READ_ONLY, sizeof(int)); // Create buffer to store current channel
+
+	// Write image input data to our device's memory via our image input buffer
+	queue.enqueueWriteBuffer(inputImgBuffer, CL_TRUE, 0, inputImgPtr.size(), &inputImgPtr.data()[0], NULL);
+
+	// Load Histogram RGB Kernel
+	cl::Kernel kernelHist = cl::Kernel(program, "histogram_rgb"); // Load the histogram kernel defined in my_kernels
+
+	// Channel loop for RGB (1,2,3)
+	for (int channel = 0 ; channel < 3; channel++) {
+		queue.enqueueFillBuffer(histBuffer, 0, 0, HIST_SIZE); // Fill histogram buffer with 0's
+		queue.enqueueWriteBuffer(channelBuffer, CL_TRUE, 0, sizeof(int), &channel); // Write channel value to channel buffer
+
+		// Set kernel arguements for histogram_rgb
+		kernelHist.setArg(0, inputImgBuffer);
+		kernelHist.setArg(1, histBuffer);
+		kernelHist.setArg(2, channelBuffer);
+
+		// Execute the kernel with our provided params
+		queue.enqueueNDRangeKernel(kernelHist, cl::NullRange, cl::NDRange(inputImgPtr.size()), kernelHist.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device));
+
+		// Write the histogram result from our device memory to our vector via the histogram buffer
+		if (channel == 0) {
+			queue.enqueueReadBuffer(histBuffer, CL_TRUE, 0, HIST_SIZE, &rHistBin[0]);
+		}
+		else if (channel == 1) {
+			queue.enqueueReadBuffer(histBuffer, CL_TRUE, 0, HIST_SIZE, &gHistBin[0]);
+		}
+		else {
+			queue.enqueueReadBuffer(histBuffer, CL_TRUE, 0, HIST_SIZE, &bHistBin[0]);
+		}
+	}
+
+	/* PART 2 - Cumulative Histogram Generation [COLOUR] */
+	std::vector<int> rCumHist(BIN_SIZE), gCumHist(BIN_SIZE), bCumHist(BIN_SIZE);
+
+	cl::Kernel kernelCumHist = cl::Kernel(program, "scan_add_atomic"); // Load Scanning kernel
+	cl::Buffer cumHistBuffer(context, CL_MEM_READ_WRITE, HIST_SIZE); // Create buffer to store cumulative values
+
+	for (int i = 0; i < 3; i++) {
+		queue.enqueueFillBuffer(cumHistBuffer, 0, 0, HIST_SIZE); // Fill cumulative buffer with 0's
+
+		// Queue a write of the correct histgram buffer
+		switch (i) {
+			case 0:
+				queue.enqueueWriteBuffer(histBuffer, CL_TRUE, 0, HIST_SIZE, &rHistBin[0]);
+				break;
+			case 1:
+				queue.enqueueWriteBuffer(histBuffer, CL_TRUE, 0, HIST_SIZE, &gHistBin[0]);
+				break;
+			case 2:
+			default:
+				queue.enqueueWriteBuffer(histBuffer, CL_TRUE, 0, HIST_SIZE, &bHistBin[0]);
+				break;
+		}
+
+		// Set kernel arguements for scanning kernel
+		kernelCumHist.setArg(0, histBuffer);
+		kernelCumHist.setArg(1, cumHistBuffer);
+
+		// Execute the cumulative histogram kernel on the selected device
+		queue.enqueueNDRangeKernel(kernelCumHist, cl::NullRange, cl::NDRange(rHistBin.size()), kernelCumHist.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device));
+
+		// Queue a read of the correct histgram buffer
+		switch (i) {
+		case 0:
+			queue.enqueueReadBuffer(cumHistBuffer, CL_TRUE, 0, HIST_SIZE, &rCumHist[0]);
+			break;
+		case 1:
+			queue.enqueueReadBuffer(cumHistBuffer, CL_TRUE, 0, HIST_SIZE, &gCumHist[0]);
+			break;
+		case 2:
+		default:
+			queue.enqueueReadBuffer(cumHistBuffer, CL_TRUE, 0, HIST_SIZE, &bCumHist[0]);
+			break;
+		}
+	}
+
+	/* PART 3 - Normalise Histogram */
+	std::vector<int> rNormHist(BIN_SIZE), gNormHist(BIN_SIZE), bNormHist(BIN_SIZE);
+
+	cl::Kernel kernelNormHist = cl::Kernel(program, "norm_bins"); // Load the norm_bins kernel defined in my_kernels
+	cl::Buffer normHistBuffer(context, CL_MEM_READ_WRITE, HIST_SIZE); // Create buffer to store normalised histogram
+	cl::Buffer pixelCountBuffer(context, CL_MEM_READ_ONLY, sizeof(float)); // Create buffer to store normalisation calc
+
+	float pixelCount = (float)255 / (float)(inputImgPtr.height() * inputImgPtr.width());
+	queue.enqueueWriteBuffer(pixelCountBuffer, CL_TRUE, 0, sizeof(int), &pixelCount); // Write channel value to channel buffer
+
+	for (int i = 0; i < 3; i++) {
+		queue.enqueueFillBuffer(normHistBuffer, 0, 0, HIST_SIZE); // Fill normalised buffer with 0's
+		
+		// Queue a write of the correct histgram buffer
+		switch (i) {
+		case 0:
+			queue.enqueueWriteBuffer(cumHistBuffer, CL_TRUE, 0, HIST_SIZE, &rCumHist[0]);
+			break;
+		case 1:
+			queue.enqueueWriteBuffer(cumHistBuffer, CL_TRUE, 0, HIST_SIZE, &gCumHist[0]);
+			break;
+		case 2:
+		default:
+			queue.enqueueWriteBuffer(cumHistBuffer, CL_TRUE, 0, HIST_SIZE, &bCumHist[0]);
+			break;
+		}
+
+		kernelNormHist.setArg(0, cumHistBuffer); // Load in the cumulative histogram buffer
+		kernelNormHist.setArg(1, normHistBuffer); // Pass in our normalised buffer filled with 0's
+		kernelNormHist.setArg(2, pixelCountBuffer); // Pass in the pixel count
+
+		// Execute the cumulative histogram kernel on the selected device
+		queue.enqueueNDRangeKernel(kernelNormHist, cl::NullRange, cl::NDRange(rHistBin.size()), kernelNormHist.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device));
+
+		// Queue a read of the correct histgram buffer
+		switch (i) {
+		case 0:
+			queue.enqueueReadBuffer(normHistBuffer, CL_TRUE, 0, HIST_SIZE, &rNormHist[0]);
+			break;
+		case 1:
+			queue.enqueueReadBuffer(normHistBuffer, CL_TRUE, 0, HIST_SIZE, &gNormHist[0]);
+			break;
+		case 2:
+		default:
+			queue.enqueueReadBuffer(normHistBuffer, CL_TRUE, 0, HIST_SIZE, &bNormHist[0]);
+			break;
+		}
+	}
+
+	/* PART 4 - LOOK UP TABLE & OUTPUT */
+	// Create an output buffer to store values copied from device once computation is complete
+	vector<unsigned char> outputImgVect(inputImgPtr.size());
+	// Create a new buffer to hold data about our output image
+	cl::Buffer outputImgBuffer(context, CL_MEM_READ_WRITE, inputImgPtr.size()); //should be the same as input image
+
+	// Create output buffers for RGB normalised values
+	cl::Buffer rOutBuffer(context, CL_MEM_READ_ONLY, HIST_SIZE), gOutBuffer(context, CL_MEM_READ_ONLY, HIST_SIZE), bOutBuffer(context, CL_MEM_READ_ONLY, HIST_SIZE);
+	queue.enqueueWriteBuffer(rOutBuffer, CL_TRUE, 0, HIST_SIZE, &rNormHist[0]);
+	queue.enqueueWriteBuffer(gOutBuffer, CL_TRUE, 0, HIST_SIZE, &gNormHist[0]);
+	queue.enqueueWriteBuffer(bOutBuffer, CL_TRUE, 0, HIST_SIZE, &bNormHist[0]);
+
+
+	cl::Kernel kernelLut = cl::Kernel(program, "lut_rgb"); // Load the LUT kernel defined in my_kernels
+	kernelLut.setArg(0, inputImgBuffer); // Load in our normalised histogram buffer bin
+	kernelLut.setArg(1, outputImgBuffer); // Load in our input image in buffer form
+	kernelLut.setArg(2, rOutBuffer); // Load in our output image buffer for writing to
+	kernelLut.setArg(3, gOutBuffer); // Load in our output image buffer for writing to
+	kernelLut.setArg(4, bOutBuffer); // Load in our output image buffer for writing to
+
+	queue.enqueueNDRangeKernel(kernelLut, cl::NullRange, cl::NDRange(inputImgPtr.size()), cl::NDRange(256));
+
+	//4.3 Copy the result from device to host
+	queue.enqueueReadBuffer(outputImgBuffer, CL_TRUE, 0, outputImgVect.size(), &outputImgVect.data()[0]);
+
+	CImg<unsigned char> output_image(outputImgVect.data(), inputImgPtr.width(), inputImgPtr.height(), inputImgPtr.depth(), inputImgPtr.spectrum());
+	CImgDisplay inputImgDisp(inputImgPtr, "Input Image");
+	CImgDisplay outputImgDisp(output_image, "Output Image");
+
+	while (!inputImgDisp.is_closed() && !outputImgDisp.is_closed() && !inputImgDisp.is_keyESC() && !outputImgDisp.is_keyESC()) {
+		inputImgDisp.wait(1);
+		inputImgDisp.wait(1);
+	}
+
+}
+
+// Performs the required functionality for a greyscale image
+void perform_greyscale_op(CImg<unsigned char> inputImgPtr, int platform_id, int device_id) {
+	// Select platform and device to use to create a context from
+	cl::Context context = GetContext(platform_id, device_id);
+	cout << "Running on " << GetPlatformName(platform_id) << ", " << GetDeviceName(platform_id, device_id) << endl;
+
+	// Create a queue to which we will push commands for the device & enable profiling
+	cl::CommandQueue queue(context, CL_QUEUE_PROFILING_ENABLE);
+
+	// Create a program to combine context and kernels
+	cl::Program::Sources sources;
+	AddSources(sources, "kernels/assign_kernels.cl");
+
+	// Create a program to combine context and kernels
+	cl::Program program(context, sources);
+
+	// Attempt to build the OpenCL Program and catch any errors that occur during build
+	try {
+		program.build();
+	}
+	catch (const cl::Error& err) {
+		std::cout << "Build Status: " << program.getBuildInfo<CL_PROGRAM_BUILD_STATUS>(context.getInfo<CL_CONTEXT_DEVICES>()[0]) << std::endl;
+		std::cout << "Build Options:\t" << program.getBuildInfo<CL_PROGRAM_BUILD_OPTIONS>(context.getInfo<CL_CONTEXT_DEVICES>()[0]) << std::endl;
+		std::cout << "Build Log:\t " << program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(context.getInfo<CL_CONTEXT_DEVICES>()[0]) << std::endl;
+		throw err;
+		return;
+	}
+
+	// Get our current device
+	cl::Device device = context.getInfo<CL_CONTEXT_DEVICES>()[0];
+
+	/* PART 1 - Histogram Generation */
+
+	// Create a host vector (Histogram Bin) to hold our output values
+	std::vector<int> histBin(256);
+	size_t histBinSize = histBin.size() * sizeof(int);
+
+	// Create our initial buffers for usage in OpenCL Kernels
+	cl::Buffer inputImgBuffer(context, CL_MEM_READ_ONLY, inputImgPtr.size()); // Create a read-only buffer with a size of our input image
+	cl::Buffer histBuffer(context, CL_MEM_READ_WRITE, histBinSize);  // Create a read-write buffer with the size of our histogram bin (bin_size * size(int))
+
+	// Create reusable CL events for tracking input and output results 
+	cl::Event inputEvent, outputEvent;
+
+	// Write image input data to our device's memory via our image input buffer
+	queue.enqueueWriteBuffer(inputImgBuffer, CL_TRUE, 0, inputImgPtr.size(), &inputImgPtr.data()[0], NULL, &inputEvent);
+	// Write histogram bin buffer filled with 0's to our device's memory
+	queue.enqueueFillBuffer(histBuffer, 0, 0, histBinSize);
+
+	// Set up histogram kernel for device execution
+	cl::Kernel kernelHist = cl::Kernel(program, "histogram"); // Load the histogram kernel defined in my_kernels
+	kernelHist.setArg(0, inputImgBuffer);  // Pass in our image buffer as our input
+	kernelHist.setArg(1, histBuffer);  // Pass in our histogram buffer as our output
+	//kernelHist.setArg(2, cl::Local(histBinSize)); // Create a local histogram with 256 bins TODO:ASK
+
+	cout << "Maximum Work Group Size:";
+	cerr << kernelHist.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(device) << endl; //get info
+	cout << "Preferred Work Group Size:";
+	cerr << kernelHist.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device) << endl; //get info
+
+	cl::Event prof_event;
+	queue.enqueueNDRangeKernel(kernelHist, cl::NullRange, cl::NDRange(inputImgPtr.size()), kernelHist.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device), NULL, &prof_event);
+
+	// Write the histogram result from our device memory to our vector via the histogram buffer
+	queue.enqueueReadBuffer(histBuffer, CL_TRUE, 0, histBinSize, &histBin[0], NULL, &outputEvent);
+
+	cout << "[Part 1] Image Buffer Memory Write Time [ns]: " << inputEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - inputEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
+	cout << "[Part 1] Histogram Buffer Memory Write Time [ns]: " << outputEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - outputEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
+
+	/* PART 2 - Cumulative Histogram Generation */
+
+	// Create a new vector to store our cumulative bin values
+	std::vector<int> cumHistBin(histBin.size());
+	size_t cumHistBinSize = cumHistBin.size() * sizeof(int);
+
+	// Create a new buffer to hold data about our cumulative histogram on our device
+	cl::Buffer cumHistBuffer(context, CL_MEM_READ_WRITE, cumHistBinSize);
+
+	// Write histogram data to our device's memory via our histogram buffer
+	queue.enqueueWriteBuffer(histBuffer, CL_TRUE, 0, histBinSize, &histBin[0], NULL, &inputEvent);
+	// Write cumulative histogram bin buffer filled with 0's to our devices memory
+	queue.enqueueFillBuffer(cumHistBuffer, 0, 0, cumHistBinSize);
+
+	////cl_int test_value = 5;
+
+	// Set up cumulative kernel for device execution
+	cl::Kernel kernelCumHist = cl::Kernel(program, "scan_hs"); // Load the scan_hs kernel defined in assign_kernels
+	kernelCumHist.setArg(0, histBuffer); // Pass in our histogram buffer as our input
+	kernelCumHist.setArg(1, cumHistBuffer); // Pass in our cumulative histogram buffer as our output
+	//kernelCumHist.setArg(2, cl::Local(histBinSize)); TODO: ASK ABOUT EXCESSIVE PIXEL CONTRAST WAY IN FINAL IMAGE
+	//kernelCumHist.setArg(3, cl::Local(histBinSize));
+
+
+	cl::Event cumHistEvent;
+
+	// Execute the cumulative histogram kernel on the selected device
+	queue.enqueueNDRangeKernel(kernelCumHist, cl::NullRange, cl::NDRange(histBin.size()), kernelCumHist.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device), NULL, &cumHistEvent);
+
+	// Copy the result from device to host
+	queue.enqueueReadBuffer(cumHistBuffer, CL_TRUE, 0, cumHistBinSize, &cumHistBin[0], NULL, &outputEvent);
+
+	cout << cumHistBin << endl;
+
+	cout << "[Part 2] Histogram Buffer Write Time [ns]: " << inputEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - inputEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
+	cout << "[Part 2] Histogram Buffer Output Write Time [ns]: " << outputEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - outputEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
+	cout << "[Part 2] scan_hs execution time [ns]:" << cumHistEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - cumHistEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
+
+	////std::cout << "Cumulative Histogram:\n" << cumHistBin << "\n\n" << std::endl;
+
+	/* Part 3 - Cumulative Histogram Normalisation */
+
+	cl::Event cumNormHistEvent;
+
+	// Create a new vector to store our cumulative bin values
+	std::vector<int> normHistBin(cumHistBin.size());
+	size_t normHistBinSize = normHistBin.size() * sizeof(int);
+
+	// Create a new buffer to hold data about our normalised cumulative histogram on our device
+	cl::Buffer normHistBuffer(context, CL_MEM_READ_WRITE, normHistBinSize);
+	cl::Buffer normValue(context, CL_MEM_READ_ONLY, sizeof(double));
+	double calc = (double)255 / (double)699392;
+
+	// Write histogram data to our device's memory via our cumulative histogram buffer
+	queue.enqueueWriteBuffer(cumHistBuffer, CL_TRUE, 0, cumHistBinSize, &cumHistBin[0], NULL, &inputEvent);
+	queue.enqueueWriteBuffer(normValue, CL_TRUE, 0, sizeof(double), &calc);
+	// Write normalised cumulative histogram bin buffer filled  with 0's to our devices memory
+	queue.enqueueFillBuffer(normHistBuffer, 0, 0, normHistBinSize);
+
+	// Set up normalised cumulative kernel for device execution
+	cl::Kernel kernelCumNormHist = cl::Kernel(program, "norm_bins"); // Load the norm_bins kernel defined in my_kernels
+	kernelCumNormHist.setArg(0, cumHistBuffer); // Load in the cumulative histogram buffer
+	kernelCumNormHist.setArg(1, normHistBuffer); // Pass in our normalised buffer filled with 0's
+	//kernelCumNormHist.setArg(2, calc); // Pass in our calculated normalisation value TODO: ASK
+
+	// Execute the cumulative histogram kernel on the selected device
+	queue.enqueueNDRangeKernel(kernelCumNormHist, cl::NullRange, cl::NDRange(cumHistBin.size()), kernelCumNormHist.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device), NULL, &cumNormHistEvent);
+
+	// Copy the result from device to host
+	queue.enqueueReadBuffer(normHistBuffer, CL_TRUE, 0, normHistBinSize, &normHistBin[0], NULL, &outputEvent);
+
+	cout << "[Part 3] Cumulative Histogram Buffer Write Time [ns]: " << inputEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - inputEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
+	cout << "[Part 3] Normalised Histogram Buffer Output Write Time [ns]: " << outputEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - outputEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
+	cout << "[Part 3] norm_bins execution time [ns]:" << cumNormHistEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - cumNormHistEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
+
+	////cout << "\nNormalised Cumalitive Histogram:\n" << normHistBin << "\n\n" << endl;
+
+	/* Part 4 - Image from LUT */
+
+	// Create an output buffer to store values copied from device once computation is complete
+	vector<unsigned char> outputImgVect(inputImgPtr.size());
+	// Create a new buffer to hold data about our output image
+	cl::Buffer outputImgBuffer(context, CL_MEM_READ_WRITE, inputImgPtr.size()); //should be the same as input image
+
+	// Write normalised cumulative histogram data to our predefined buffer
+	queue.enqueueWriteBuffer(normHistBuffer, CL_TRUE, 0, normHistBinSize, &normHistBin[0]);
+
+	cl::Kernel kernelLut = cl::Kernel(program, "lut"); // Load the LUT kernel defined in my_kernels
+	kernelLut.setArg(0, inputImgBuffer); // Load in our normalised histogram buffer bin
+	kernelLut.setArg(1, outputImgBuffer); // Load in our input image in buffer form
+	kernelLut.setArg(2, normHistBuffer); // Load in our output image buffer for writing to
+
+	queue.enqueueNDRangeKernel(kernelLut, cl::NullRange, cl::NDRange(inputImgPtr.size()), cl::NDRange(256));
+
+	//4.3 Copy the result from device to host
+	queue.enqueueReadBuffer(outputImgBuffer, CL_TRUE, 0, outputImgVect.size(), &outputImgVect.data()[0]);
+
+	CImg<unsigned char> output_image(outputImgVect.data(), inputImgPtr.width(), inputImgPtr.height(), inputImgPtr.depth(), inputImgPtr.spectrum());
+	CImgDisplay inputImgDisp(inputImgPtr, "Input Image");
+	CImgDisplay outputImgDisp(output_image, "Output Image");
+
+	std::cout << "Kernel execution time [ns]:" << prof_event.getProfilingInfo<CL_PROFILING_COMMAND_END>() - prof_event.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
+	std::cout << "Profile info: " << GetFullProfilingInfo(prof_event, ProfilingResolution::PROF_US) << std::endl;
+
+	while (!inputImgDisp.is_closed() && !outputImgDisp.is_closed() && !inputImgDisp.is_keyESC() && !outputImgDisp.is_keyESC()) {
+		inputImgDisp.wait(1);
+		inputImgDisp.wait(1);
+	}
 }
