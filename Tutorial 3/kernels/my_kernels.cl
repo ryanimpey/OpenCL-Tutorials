@@ -52,12 +52,6 @@ kernel void reduce_add_3(global const int* A, global int* B, local int* scratch)
 	int lid = get_local_id(0);
 	int N = get_local_size(0);
 
-	if (id == 0) {
-		printf("IDS: %i, %i, %i\n", id, lid, N);
-	}
-
-	printf("Global ID:  %i\n", id);
-
 	//cache all N values from global memory to local memory
 	scratch[lid] = A[id];
 
@@ -112,7 +106,7 @@ kernel void hist_simple(global const int* A, global int* H) {
 	atomic_inc(&H[bin_index]);//serial operation, not very efficient!
 }
 
-kernel void hist_local_simple(global const int* A, global int* H, local int* LH, int nr_bins) {
+kernel void hist_local_simple(global const int* A, global int* H, local int* LH) {
 	int id = get_global_id(0);
 	int lid = get_local_id(0);
 	int bin_index = A[id];
@@ -120,9 +114,9 @@ kernel void hist_local_simple(global const int* A, global int* H, local int* LH,
 	//clear the scratch bins
 	barrier(CLK_LOCAL_MEM_FENCE);
 	atomic_inc(&LH[bin_index]);
-	barrier(CLK_LOCAL_MEM_FENCE);
+	barrier(CLK_GLOBAL_MEM_FENCE);
 
-	if (id < nr_bins) {
+	if (id < 9) {
 		//combine all local hist into a global one
 		atomic_add(&H[id], LH[id]);
 	}
