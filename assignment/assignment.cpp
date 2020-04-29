@@ -358,6 +358,7 @@ void perform_greyscale_op(CImg<unsigned char> inputImgPtr, int platform_id, int 
 	cout << "[Part 1] Image Buffer Memory Write Time [ns]: " << inputProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - inputProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
 	cout << "[Part 1] Histogram Buffer Memory Write Time [ns]: " << outputProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - outputProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
 	cout << "[Part 1] Histogram Kernel Execution Time [ns]:" << histogramProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - histogramProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
+	cout << "[Part 1] Full Profiling Info (kernel) [ns]: " << GetFullProfilingInfo(histogramProf, ProfilingResolution::PROF_NS) << endl;
 
 	/* PART 2 - Cumulative Histogram Generation */
 
@@ -395,6 +396,7 @@ void perform_greyscale_op(CImg<unsigned char> inputImgPtr, int platform_id, int 
 	cout << "[Part 2] Cumulative Histogram Buffer Write Time [ns]: " << inputProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - inputProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
 	cout << "[Part 2] Cumulative Histogram Buffer Output Write Time [ns]: " << outputProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - outputProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
 	cout << "[Part 2] Cumulative Kernel Execution Time [ns]:" << cumulativeProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - cumulativeProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
+	cout << "[Part 2] Full Profiling Info (kernel) [ns]: " << GetFullProfilingInfo(cumulativeProf, ProfilingResolution::PROF_NS) << endl;
 
 	/* Part 3 - Cumulative Histogram Normalisation */
 
@@ -437,8 +439,7 @@ void perform_greyscale_op(CImg<unsigned char> inputImgPtr, int platform_id, int 
 	cout << "[Part 3] Normalised Histogram Buffer Write Time [ns]: " << inputProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - inputProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
 	cout << "[Part 3] Normalised Histogram Buffer Output Write Time [ns]: " << outputProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - outputProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
 	cout << "[Part 3] Normalised Kernel Execution Time [ns]:" << normalisedProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - normalisedProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
-
-	////cout << "\nNormalised Cumalitive Histogram:\n" << normHistBin << "\n\n" << endl;
+	cout << "[Part 3] Full Profiling Info (kernel) [ns]: " << GetFullProfilingInfo(normalisedProf, ProfilingResolution::PROF_NS) << endl;
 
 	/* Part 4 - Image from LUT */
 
@@ -477,6 +478,7 @@ void perform_greyscale_op(CImg<unsigned char> inputImgPtr, int platform_id, int 
 	cout << "[Part 4] Input Image Buffer Write Time [ns]: " << inputProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - inputProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
 	cout << "[Part 4] Output Image Buffer Write Time [ns]: " << outputProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - outputProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
 	cout << "[Part 4] Look-Up Table Kernel Execution Time [ns]:" << lutProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - lutProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
+	cout << "[Part 4] Full Profiling Info (kernel) [ns]: " << GetFullProfilingInfo(lutProf, ProfilingResolution::PROF_NS) << endl;
 
 	while (!inputImgDisp.is_closed() && !outputImgDisp.is_closed() && !inputImgDisp.is_keyESC() && !outputImgDisp.is_keyESC()) {
 		inputImgDisp.wait(1);
