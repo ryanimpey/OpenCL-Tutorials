@@ -29,6 +29,18 @@ kernel void reduce_add_1(global const int* A, global int* B) {
 		B[id] += B[id + 8];
 }
 
+kernel void hist_local_simple(global const int* A, global int* H, local int* LH) {
+	int id = get_global_id(0);
+	int lid = get_local_id(0);
+	int bin_index = A[id];
+	//clear the scratch bins
+	barrier(CLK_LOCAL_MEM_FENCE);
+	atomic_inc(&LH[bin_index]);
+	barrier(CLK_LOCAL_MEM_FENCE);
+	if (id < 10) //combine all local hist into a global one
+		atomic_add(&H[id], LH[id]);
+}
+
 //flexible step reduce 
 kernel void reduce_add_2(global const int* A, global int* B) {
 	int id = get_global_id(0);
@@ -44,6 +56,22 @@ kernel void reduce_add_2(global const int* A, global int* B) {
 
 		barrier(CLK_GLOBAL_MEM_FENCE);
 	}
+}
+
+kernel void hist_atomic(global const int* A, local int* H) {
+	int id = get_global_id(0);
+	int lid = get_local_id(0);
+	int bin_index = A[id];
+
+	printf("ID: %i, LID: %i\n", id, lid);
+
+	//clear the scratch bins
+	if (lid < 10) {
+		H[lid] = 0;
+	}
+
+	barrier(CLK_LOCAL_MEM_FENCE);
+	atomic_inc(&H[bin_index]);
 }
 
 //reduce using local memory (so called privatisation)
@@ -104,22 +132,6 @@ kernel void hist_simple(global const int* A, global int* H) {
 	int bin_index = A[id];//take value as a bin index
 
 	atomic_inc(&H[bin_index]);//serial operation, not very efficient!
-}
-
-kernel void hist_local_simple(global const int* A, global int* H, local int* LH) {
-	int id = get_global_id(0);
-	int lid = get_local_id(0);
-	int bin_index = A[id];
-
-	//clear the scratch bins
-	barrier(CLK_LOCAL_MEM_FENCE);
-	atomic_inc(&LH[bin_index]);
-	barrier(CLK_GLOBAL_MEM_FENCE);
-
-	if (id < 9) {
-		//combine all local hist into a global one
-		atomic_add(&H[id], LH[id]);
-	}
 }
 
 //Hillis-Steele basic inclusive scan

@@ -86,7 +86,7 @@ int main(int argc, char **argv) {
 		size_t output_size = B.size()*sizeof(mytype);//size in bytes
 
 		//device - buffers
-		cl::Buffer buffer_A(context, CL_MEM_READ_ONLY, input_size);
+		cl::Buffer buffer_A(context, CL_MEM_READ_WRITE, input_size);
 		cl::Buffer buffer_B(context, CL_MEM_READ_WRITE, output_size);
 
 		//Part 4 - device operations
@@ -100,7 +100,7 @@ int main(int argc, char **argv) {
 		cl::Kernel kernel_1 = cl::Kernel(program, "hist_local_simple");
 		kernel_1.setArg(0, buffer_A);
 		kernel_1.setArg(1, buffer_B);
-		kernel_1.setArg(2, cl::Local(local_size));
+		kernel_1.setArg(2, cl::Local(input_size));
 
 		//call all kernels in a sequence
 		queue.enqueueNDRangeKernel(kernel_1, cl::NullRange, cl::NDRange(input_elements), cl::NullRange);

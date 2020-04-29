@@ -28,7 +28,7 @@ int main(int argc, char **argv) {
 	int device_id = 0;
 
 	// Load in our initial reference file
-	string inputImgFilename = "test.pgm";
+	string inputImgFilename = "test.ppm";
 
 	// Handle command line arguements
 	for (int i = 1; i < argc; i++) {
@@ -150,10 +150,14 @@ void perform_colour_op(CImg<unsigned char> inputImgPtr, int platform_id, int dev
 		}
 	}
 
+	cout << "RED HISTOGRAM: " << rHistBin << endl;
+	cout << "GREEN HISTOGRAM: " << gHistBin << endl;
+	cout << "BLUE HISTOGRAM: " << bHistBin << endl;
+
 	/* PART 2 - Cumulative Histogram Generation [COLOUR] */
 	std::vector<int> rCumHist(BIN_SIZE), gCumHist(BIN_SIZE), bCumHist(BIN_SIZE);
 
-	cl::Kernel kernelCumHist = cl::Kernel(program, "scan_hs"); // Load Scanning kernel
+	cl::Kernel kernelCumHist = cl::Kernel(program, "scan_add_atomic"); // Load Scanning kernel
 	cl::Buffer cumHistBuffer(context, CL_MEM_READ_WRITE, HIST_SIZE); // Create buffer to store cumulative values
 
 	for (int i = 0; i < 3; i++) {
@@ -178,7 +182,7 @@ void perform_colour_op(CImg<unsigned char> inputImgPtr, int platform_id, int dev
 		kernelCumHist.setArg(1, cumHistBuffer);
 
 		// Execute the cumulative histogram kernel on the selected device
-		queue.enqueueNDRangeKernel(kernelCumHist, cl::NullRange, cl::NDRange(rHistBin.size()), kernelCumHist.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device));
+		queue.enqueueNDRangeKernel(kernelCumHist, cl::NullRange, cl::NDRange(rHistBin.size()), kernelCumHist.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(device));
 
 		// Queue a read of the correct histgram buffer
 		switch (i) {
@@ -195,6 +199,10 @@ void perform_colour_op(CImg<unsigned char> inputImgPtr, int platform_id, int dev
 		}
 	}
 
+	cout << "RED CUMULATIVE HISTOGRAM: " << rCumHist << endl;
+	cout << "GREEN CUMULATIVE HISTOGRAM: " << gCumHist << endl;
+	cout << "BLUE CUMULATIVE HISTOGRAM: " << bCumHist << endl;
+
 	/* PART 3 - Normalise Histogram */
 	std::vector<int> rNormHist(BIN_SIZE), gNormHist(BIN_SIZE), bNormHist(BIN_SIZE);
 
@@ -202,7 +210,7 @@ void perform_colour_op(CImg<unsigned char> inputImgPtr, int platform_id, int dev
 	cl::Buffer normHistBuffer(context, CL_MEM_READ_WRITE, HIST_SIZE); // Create buffer to store normalised histogram
 	cl::Buffer pixelCountBuffer(context, CL_MEM_READ_ONLY, sizeof(float)); // Create buffer to store normalisation calc
 
-	float pixelCount = (float)255 / (float)inputImgPtr.size();
+	float pixelCount = (float)255 / (float)(inputImgPtr.height() * inputImgPtr.width());
 	queue.enqueueWriteBuffer(pixelCountBuffer, CL_TRUE, 0, sizeof(int), &pixelCount); // Write channel value to channel buffer
 
 	for (int i = 0; i < 3; i++) {
@@ -312,12 +320,13 @@ void perform_greyscale_op(CImg<unsigned char> inputImgPtr, int platform_id, int 
 	// Get our current device
 	cl::Device device = context.getInfo<CL_CONTEXT_DEVICES>()[0];
 	const int BIN_SIZE = 256;
-	const size_t HIST_SIZE = BIN_SIZE * sizeof(int);
 
 	/* PART 1 - Histogram Generation */
 
 	// Create a host vector (Histogram Bin) to hold our output values
 	std::vector<int> histBin(BIN_SIZE);
+	const size_t HIST_SIZE = histBin.size() * sizeof(int);
+
 
 	// Create our initial buffers for usage in OpenCL Kernels
 	cl::Buffer inputImgBuffer(context, CL_MEM_READ_ONLY, inputImgPtr.size()); // Create a read-only buffer with a size of our input image
@@ -335,7 +344,7 @@ void perform_greyscale_op(CImg<unsigned char> inputImgPtr, int platform_id, int 
 	cl::Kernel kernelHist = cl::Kernel(program, "histogram"); // Load the histogram kernel defined in my_kernels
 	kernelHist.setArg(0, inputImgBuffer);  // Pass in our image buffer as our input
 	kernelHist.setArg(1, histBuffer);  // Pass in our histogram buffer as our output
-	//kernelHist.setArg(2, cl::Local(histBinSize)); // Create a local histogram with 256 bins TODO:ASK
+	//kernelHist.setArg(2, cl::Local(HIST_SIZE)); // Create a local histogram with size of histogram buffer
 
 	cout << "Maximum Work Group Size:";
 	cerr << kernelHist.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(device) << endl; //get info
@@ -343,10 +352,9 @@ void perform_greyscale_op(CImg<unsigned char> inputImgPtr, int platform_id, int 
 	cerr << kernelHist.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device) << endl; //get info
 
 	cl::Event prof_event;
-	queue.enqueueNDRangeKernel(kernelHist, cl::NullRange, cl::NDRange(inputImgPtr.size()), kernelHist.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device), NULL, &prof_event);
-
+	queue.enqueueNDRangeKernel(kernelHist, cl::NullRange, cl::NDRange(inputImgPtr.size()), cl::NullRange, NULL, &prof_event);
 	// Write the histogram result from our device memory to our vector via the histogram buffer
-	queue.enqueueReadBuffer(histBuffer, CL_TRUE, 0, HIST_SIZE, &histBin[0], NULL, &outputEvent);
+	queue.enqueueReadBuffer(histBuffer, CL_TRUE, 0, histBin.size() * sizeof(int), &histBin[0], NULL, &outputEvent);
 
 	cout << "[Part 1] Image Buffer Memory Write Time [ns]: " << inputEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - inputEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
 	cout << "[Part 1] Histogram Buffer Memory Write Time [ns]: " << outputEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - outputEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
@@ -368,7 +376,7 @@ void perform_greyscale_op(CImg<unsigned char> inputImgPtr, int platform_id, int 
 	////cl_int test_value = 5;
 
 	// Set up cumulative kernel for device execution
-	cl::Kernel kernelCumHist = cl::Kernel(program, "scan_add"); // Load the scan_hs kernel defined in assign_kernels
+	cl::Kernel kernelCumHist = cl::Kernel(program, "scan_hs"); // Load the scan_hs kernel defined in assign_kernels
 	kernelCumHist.setArg(0, histBuffer); // Pass in our histogram buffer as our input
 	kernelCumHist.setArg(1, cumHistBuffer); // Pass in our cumulative histogram buffer as our output
 	//kernelCumHist.setArg(2, cl::Local(HIST_SIZE)); TODO: ASK ABOUT EXCESSIVE PIXEL CONTRAST WAY IN FINAL IMAGE
@@ -376,12 +384,15 @@ void perform_greyscale_op(CImg<unsigned char> inputImgPtr, int platform_id, int 
 
 
 	cl::Event cumHistEvent;
-
+	cout << "PReferred cumulative size: ";
+	cerr << kernelCumHist.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device) << endl;
 	// Execute the cumulative histogram kernel on the selected device
 	queue.enqueueNDRangeKernel(kernelCumHist, cl::NullRange, cl::NDRange(histBin.size()), kernelCumHist.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device), NULL, &cumHistEvent);
 
 	// Copy the result from device to host
 	queue.enqueueReadBuffer(cumHistBuffer, CL_TRUE, 0, cumHistBinSize, &cumHistBin[0], NULL, &outputEvent);
+
+	cout << cumHistBin << endl;
 
 	cout << "[Part 2] Histogram Buffer Write Time [ns]: " << inputEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - inputEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
 	cout << "[Part 2] Histogram Buffer Output Write Time [ns]: " << outputEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - outputEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
@@ -400,7 +411,7 @@ void perform_greyscale_op(CImg<unsigned char> inputImgPtr, int platform_id, int 
 	cl::Buffer normHistBuffer(context, CL_MEM_READ_WRITE, normHistBinSize);
 	cl::Buffer pixelCountBuffer(context, CL_MEM_READ_ONLY, sizeof(float)); // Create buffer to store normalisation calc
 
-	float pixelCount = (float)255 / (float)inputImgPtr.size();
+	float pixelCount = (float)255 / (float)(inputImgPtr.height() * inputImgPtr.width());
 
 	// Write histogram data to our device's memory via our cumulative histogram buffer
 	queue.enqueueWriteBuffer(cumHistBuffer, CL_TRUE, 0, cumHistBinSize, &cumHistBin[0], NULL, &inputEvent);

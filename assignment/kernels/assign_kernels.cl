@@ -7,29 +7,30 @@ kernel void histogram(global const uchar* A, global int* H) {
 	atomic_inc(&H[A[id]]);
 }
 
+// Normalise a histogram bin from a range of 0-PIXEL_COUNT to 0-255
+kernel void norm_bins(global const int* A, global int* B, global const float* C) {
+	int id = get_global_id(0);
+
+	// Return the normalised value in buffer B, using the pixel count in pointer C
+	B[id] = A[id] * *C;
+}
+
 // Take A as a bin value and place it into a histogram bin
 kernel void histogram_rgb(global const uchar* A, global int* H, global int* channel) {
 	int id = get_global_id(0);
-	int image_size = get_global_size(0) / 3; //each image consists of 3 colour channels
+	int image_size = get_global_size(0) / 3; // Each image consists of 3 colour channels
 	int colour_channel = id / image_size; // 0 - red, 1 - green, 2 - blue
 
+	// Performed in a series of maps, increment depending on the channel currently being executed
 	if (colour_channel == *channel) {
 		atomic_inc(&H[A[id]]);
 	}
 }
 
-// Normalise a histogram bin from a range of 0-699392 to 0-255 //TODO: ASK
-kernel void norm_bins(global const int* A, global int* B, global const float* C) {
-	int id = get_global_id(0);
-
-	// Return the normalised value in buffer B
-	B[id] = A[id] * *C;
-}
-
-// Invert the current pixel intensity value for each pixel in a CImg array
+// Look up table for each pixel of Red, Green, and Blue
 kernel void lut_rgb(global uchar* A, global uchar* O, global int* R, global int* G, global int* B) {
 	int id = get_global_id(0);
-	int image_size = get_global_size(0) / 3; //each image consists of 3 colour channels
+	int image_size = get_global_size(0) / 3; // Each image consists of 3 colour channels
 	int colour_channel = id / image_size; // 0 - red, 1 - green, 2 - blue
 
 	if (colour_channel == 0) {
@@ -40,24 +41,6 @@ kernel void lut_rgb(global uchar* A, global uchar* O, global int* R, global int*
 	}
 	else {
 		O[id] = B[A[id]];
-	}
-	
-	// A[id] is our bin greyscale value from 0-255
-}
-
-kernel void hist_local_simple(global const int* A, global int* H, local int* LH) {
-	int id = get_global_id(0);
-	int lid = get_local_id(0);
-	int bin_index = A[id];
-
-	//clear the scratch bins
-	barrier(CLK_LOCAL_MEM_FENCE);
-	atomic_inc(&LH[bin_index]);
-	barrier(CLK_LOCAL_MEM_FENCE);
-
-	if (id < 256) {
-		//combine all local hist into a global one
-		atomic_add(&H[id], LH[id]);
 	}
 }
 
@@ -87,6 +70,7 @@ kernel void scan_hs(global int* A, global int* B) {
 		C = A; A = B; B = C; //swap A & B between steps
 	}
 }
+
 
 //a double-buffered version of the Hillis-Steele inclusive scan
 //requires two additional input arguments which correspond to two local buffers
@@ -120,22 +104,50 @@ kernel void scan_add(global const int* A, global int* B, local int* scratch_1, l
 	B[id] = scratch_1[lid];
 }
 
-// TODO: Finish this
-kernel void bin_normalise(global const uchar* A, global uchar* B) {
-	int id = get_global_id(0);
-
-	// Take a max value of 255 and subtract a value (0-255) from it to get the inverted value, e.g 255 - 0 = 255; 255 - 100 = 155
-	int inverted_value = 255 - A[id];
-
-	printf("A: %i, ", A[id]);
-	printf("B: %i\n", B[id]);
-	B[id] = inverted_value;
-}
-
 // Invert the current pixel intensity value for each pixel in a CImg array
 kernel void lut(global uchar* A, global uchar* B, global int* C) {
 	int id = get_global_id(0);
 	
 	// A[id] is our bin greyscale value from 0-255
 	B[id] = C[A[id]];
+}
+
+
+/* W.I.P */
+// Performs atomic additions on local memory
+kernel void hist_atomic(global const uchar* A, global int* O, local int* H) {
+	int id = get_global_id(0);
+	int lid = get_local_id(0);
+	int bin_index = A[id];
+
+	//clear the scratch bins
+	if (lid < 256) {
+		H[lid] = 0;
+	}
+
+	barrier(CLK_LOCAL_MEM_FENCE);
+	atomic_inc(&H[bin_index]);
+
+	if (id < 5) {
+		printf("&O[bin_index]: %i, O[bin_index]: %i, H[bin_index]: %i\n", &O[bin_index], O[bin_index], H[bin_index]);
+	}
+
+	barrier(CLK_GLOBAL_MEM_FENCE); // Local memory sync
+	atomic_add(&O[bin_index], H[bin_index]); // Causes issue where numbers are 10 digits long etc, needs fixing
+}
+
+// Performs much like hist_atomic - works on tutorial 3 using int (sometimes, same issue as hist_atomic), not uchar
+kernel void hist_local_simple(global const uchar* A, global int* H, local int* LH) {
+	int id = get_global_id(0);
+	int lid = get_local_id(0);
+	int bin_index = A[id];
+
+	//clear the scratch bins
+	barrier(CLK_LOCAL_MEM_FENCE);
+	atomic_inc(&LH[bin_index]);
+	barrier(CLK_LOCAL_MEM_FENCE);
+
+	if (id < 256) {
+		atomic_add(&H[id], LH[id]);
+	}
 }
