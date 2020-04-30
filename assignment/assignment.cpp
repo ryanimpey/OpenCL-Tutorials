@@ -136,6 +136,7 @@ void perform_colour_op(CImg<unsigned char> inputImgPtr, int platform_id, int dev
 	const size_t HIST_SIZE = BIN_SIZE * sizeof(int); // Hard-coded bin size
 	cl::Event inputProf, outputProf; // Create generic CL Events for profiling
 
+
 	/* PART 1 - Histogram Generation [COLOUR] */
 	std::vector<int> rHistBin(BIN_SIZE), gHistBin(BIN_SIZE), bHistBin(BIN_SIZE); // Create a histogram for RGB individually
 
@@ -192,6 +193,7 @@ void perform_colour_op(CImg<unsigned char> inputImgPtr, int platform_id, int dev
 		cout << "[Part 1] [Channel " << channel << "] Full Profiling Info (kernel) [ns]: " << GetFullProfilingInfo(histogramProf, ProfilingResolution::PROF_NS) << endl;
 
 	}
+
 
 	/* PART 2 - Cumulative Histogram Generation [COLOUR] */
 	std::vector<int> rCumHist(BIN_SIZE), gCumHist(BIN_SIZE), bCumHist(BIN_SIZE); // Create 3 vectors to store cumulative R,G,B histogram values
@@ -253,6 +255,7 @@ void perform_colour_op(CImg<unsigned char> inputImgPtr, int platform_id, int dev
 		cout << "[Part 2] [Channel " << i << "] Full Profiling Info (kernel) [ns]: " << GetFullProfilingInfo(cumulativeProf, ProfilingResolution::PROF_NS) << endl;
 		cout << "[Part 2] [Channel " << i << "] Cumulative Kernel Execution Time [ns]:" << cumulativeProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - cumulativeProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
 	}
+
 
 	/* PART 3 - Normalise Histogram */
 	std::vector<int> rNormHist(BIN_SIZE), gNormHist(BIN_SIZE), bNormHist(BIN_SIZE); // Create 3 vectors to store normalised R,G,B histogram values
@@ -318,6 +321,7 @@ void perform_colour_op(CImg<unsigned char> inputImgPtr, int platform_id, int dev
 		cout << "[Part 3] [Channel " << i << "] Full Profiling Info (kernel) [ns]: " << GetFullProfilingInfo(cumulativeProf, ProfilingResolution::PROF_NS) << endl;
 		cout << "[Part 3] [Channel " << i << "] Normalise Kernel Execution Time [ns]:" << cumulativeProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - cumulativeProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
 	}
+
 
 	/* PART 4 - LOOK UP TABLE & OUTPUT */
 	// Create an output buffer to store values copied from device once computation is complete
@@ -409,6 +413,7 @@ void perform_greyscale_op(CImg<unsigned char> inputImgPtr, int platform_id, int 
 	const int BIN_SIZE = 256; // Hard-coded bin size of 256
 	cl::Event inputProf, outputProf; // Create generic CL Events for profiling
 
+
 	/* PART 1 - Histogram Generation [GREYSCALE] */
 	std::vector<int> histBin(BIN_SIZE); // Create a histogram to hold values 
 	const size_t HIST_SIZE = histBin.size() * sizeof(int); // Hard-coded bin size
@@ -446,8 +451,8 @@ void perform_greyscale_op(CImg<unsigned char> inputImgPtr, int platform_id, int 
 	cout << "[Part 1] Histogram Kernel Execution Time [ns]:" << histogramProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - histogramProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
 	cout << "[Part 1] Full Profiling Info (kernel) [ns]: " << GetFullProfilingInfo(histogramProf, ProfilingResolution::PROF_NS) << endl;
 
-	/* PART 2 - Cumulative Histogram Generation */
 
+	/* PART 2 - Cumulative Histogram Generation */
 	// Create a new vector to store our cumulative bin values
 	std::vector<int> cumBin(BIN_SIZE);
 
@@ -484,8 +489,8 @@ void perform_greyscale_op(CImg<unsigned char> inputImgPtr, int platform_id, int 
 	cout << "[Part 2] Cumulative Kernel Execution Time [ns]:" << cumulativeProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - cumulativeProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
 	cout << "[Part 2] Full Profiling Info (kernel) [ns]: " << GetFullProfilingInfo(cumulativeProf, ProfilingResolution::PROF_NS) << endl;
 
-	/* Part 3 - Cumulative Histogram Normalisation */
 
+	/* Part 3 - Cumulative Histogram Normalisation */
 	// Create a new vector to store our cumulative bin values
 	std::vector<int> normHistBin(cumBin.size());
 
@@ -527,8 +532,8 @@ void perform_greyscale_op(CImg<unsigned char> inputImgPtr, int platform_id, int 
 	cout << "[Part 3] Normalised Kernel Execution Time [ns]:" << normalisedProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - normalisedProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
 	cout << "[Part 3] Full Profiling Info (kernel) [ns]: " << GetFullProfilingInfo(normalisedProf, ProfilingResolution::PROF_NS) << endl;
 
-	/* Part 4 - Image from LUT */
 
+	/* Part 4 - Image from LUT */
 	// Create an output buffer to store values copied from device once computation is complete
 	vector<unsigned char> outputImgVect(inputImgPtr.size());
 	// Create a new buffer to hold data about our output image
