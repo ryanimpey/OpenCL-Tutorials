@@ -28,7 +28,7 @@ int main(int argc, char **argv) {
 	int device_id = 0;
 
 	// Load in our initial reference file
-	string inputImgFilename = "test_large.pgm";
+	string inputImgFilename = "test.ppm";
 
 	// Handle command line arguements
 	for (int i = 1; i < argc; i++) {
@@ -75,7 +75,7 @@ int main(int argc, char **argv) {
 	return 0;
 }
 
-// Performs the required functionality for a colour image
+// Performs contrast adjustment for a colour image
 void perform_colour_op(CImg<unsigned char> inputImgPtr, int platform_id, int device_id) {
 	// Select platform and device to use to create a context from
 	cl::Context context = GetContext(platform_id, device_id);
@@ -111,6 +111,7 @@ void perform_colour_op(CImg<unsigned char> inputImgPtr, int platform_id, int dev
 
 	const int BIN_SIZE = 256; // Hard-coded bin size of 256
 	const size_t HIST_SIZE = BIN_SIZE * sizeof(int); // Hard-coded bin size
+	cl::Event inputProf, outputProf; // Create generic CL Events for profiling
 
 	/* PART 1 - Histogram Generation [COLOUR] */
 	std::vector<int> rHistBin(BIN_SIZE), gHistBin(BIN_SIZE), bHistBin(BIN_SIZE); // Create a histogram for RGB individually
@@ -121,10 +122,23 @@ void perform_colour_op(CImg<unsigned char> inputImgPtr, int platform_id, int dev
 	cl::Buffer channelBuffer(context, CL_MEM_READ_ONLY, sizeof(int)); // Create buffer to store current channel
 
 	// Write image input data to our device's memory via our image input buffer
-	queue.enqueueWriteBuffer(inputImgBuffer, CL_TRUE, 0, inputImgPtr.size(), &inputImgPtr.data()[0], NULL);
+	queue.enqueueWriteBuffer(inputImgBuffer, CL_TRUE, 0, inputImgPtr.size(), &inputImgPtr.data()[0], NULL, &inputProf);
 
 	// Load Histogram RGB Kernel
 	cl::Kernel kernelHist = cl::Kernel(program, "histogram_rgb"); // Load the histogram kernel defined in my_kernels
+
+	// Report stats for histogram kernel
+	cout << "[Part 1] Maximum Work Group Size: ";
+	cerr << kernelHist.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(device) << endl; // Get device info
+	cout << "[Part 1] Preferred Work Group Size: ";
+	cerr << kernelHist.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device) << endl; // Get device info
+
+	// Report image buffer write time
+	cout << "[Part 1] Image Buffer Memory Write Time [ns]: " << inputProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - inputProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
+
+
+	// Event for tracking kernel execution time
+	cl::Event histogramProf;
 
 	// Execute the histogram_rgb for each image channel individually
 	for (int channel = 0 ; channel < 3; channel++) {
@@ -137,18 +151,23 @@ void perform_colour_op(CImg<unsigned char> inputImgPtr, int platform_id, int dev
 		kernelHist.setArg(2, channelBuffer);
 
 		// Execute the kernel with our provided params
-		queue.enqueueNDRangeKernel(kernelHist, cl::NullRange, cl::NDRange(inputImgPtr.size()), kernelHist.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device));
+		queue.enqueueNDRangeKernel(kernelHist, cl::NullRange, cl::NDRange(inputImgPtr.size()), kernelHist.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device), NULL, &histogramProf);
 
 		// Write the histogram result from our device memory to our vector via the histogram buffer
 		if (channel == 0) {
-			queue.enqueueReadBuffer(histBuffer, CL_TRUE, 0, HIST_SIZE, &rHistBin[0]);
+			queue.enqueueReadBuffer(histBuffer, CL_TRUE, 0, HIST_SIZE, &rHistBin[0], NULL, &outputProf);
 		}
 		else if (channel == 1) {
-			queue.enqueueReadBuffer(histBuffer, CL_TRUE, 0, HIST_SIZE, &gHistBin[0]);
+			queue.enqueueReadBuffer(histBuffer, CL_TRUE, 0, HIST_SIZE, &gHistBin[0], NULL, &outputProf);
 		}
 		else {
-			queue.enqueueReadBuffer(histBuffer, CL_TRUE, 0, HIST_SIZE, &bHistBin[0]);
+			queue.enqueueReadBuffer(histBuffer, CL_TRUE, 0, HIST_SIZE, &bHistBin[0], NULL, &outputProf);
 		}
+
+		cout << "[Part 1] [Channel "<< channel << "] Histogram Buffer Memory Write Time [ns]: " << outputProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - outputProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
+		cout << "[Part 1] [Channel " << channel << "] Histogram Kernel Execution Time [ns]:" << histogramProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - histogramProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
+		cout << "[Part 1] [Channel " << channel << "] Full Profiling Info (kernel) [ns]: " << GetFullProfilingInfo(histogramProf, ProfilingResolution::PROF_NS) << endl;
+
 	}
 
 	/* PART 2 - Cumulative Histogram Generation [COLOUR] */
@@ -157,6 +176,15 @@ void perform_colour_op(CImg<unsigned char> inputImgPtr, int platform_id, int dev
 	cl::Kernel kernelCum = cl::Kernel(program, "scan_add_atomic"); // Load Scanning kernel
 	cl::Buffer cumHistBuffer(context, CL_MEM_READ_WRITE, HIST_SIZE); // Create buffer to store cumulative values
 
+	// Report stats for histogram kernel
+	cout << "[Part 1] Maximum Work Group Size: ";
+	cerr << kernelCum.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(device) << endl; // Get device info
+	cout << "[Part 1] Preferred Work Group Size: ";
+	cerr << kernelCum.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device) << endl; // Get device info
+
+	// Event for tracking kernel execution time
+	cl::Event cumulativeProf;
+
 	// Execute scan_add_atomic for each spectrum (r,g,b) sequentially
 	for (int i = 0; i < 3; i++) {
 		queue.enqueueFillBuffer(cumHistBuffer, 0, 0, HIST_SIZE); // Fill cumulative buffer with 0's
@@ -164,37 +192,43 @@ void perform_colour_op(CImg<unsigned char> inputImgPtr, int platform_id, int dev
 		// Queue a write of the correct histgram buffer
 		switch (i) {
 			case 0:
-				queue.enqueueWriteBuffer(histBuffer, CL_TRUE, 0, HIST_SIZE, &rHistBin[0]);
+				queue.enqueueWriteBuffer(histBuffer, CL_TRUE, 0, HIST_SIZE, &rHistBin[0], NULL, &inputProf);
 				break;
 			case 1:
-				queue.enqueueWriteBuffer(histBuffer, CL_TRUE, 0, HIST_SIZE, &gHistBin[0]);
+				queue.enqueueWriteBuffer(histBuffer, CL_TRUE, 0, HIST_SIZE, &gHistBin[0], NULL, &inputProf);
 				break;
 			case 2:
 			default:
-				queue.enqueueWriteBuffer(histBuffer, CL_TRUE, 0, HIST_SIZE, &bHistBin[0]);
+				queue.enqueueWriteBuffer(histBuffer, CL_TRUE, 0, HIST_SIZE, &bHistBin[0], NULL, &inputProf);
 				break;
 		}
+
+		cout << "[Part 2] [Channel " << i << "] Histogram Buffer Memory Write Time [ns]: " << inputProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - outputProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
 
 		// Set kernel arguements for scanning kernel
 		kernelCum.setArg(0, histBuffer);
 		kernelCum.setArg(1, cumHistBuffer);
 
 		// Execute the cumulative histogram kernel on the selected device
-		queue.enqueueNDRangeKernel(kernelCum, cl::NullRange, cl::NDRange(rHistBin.size()), kernelCum.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(device));
+		queue.enqueueNDRangeKernel(kernelCum, cl::NullRange, cl::NDRange(rHistBin.size()), kernelCum.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(device), NULL, &cumulativeProf);
 
 		// Queue a read of the correct histgram buffer
 		switch (i) {
 		case 0:
-			queue.enqueueReadBuffer(cumHistBuffer, CL_TRUE, 0, HIST_SIZE, &rCumHist[0]);
+			queue.enqueueReadBuffer(cumHistBuffer, CL_TRUE, 0, HIST_SIZE, &rCumHist[0], NULL, &outputProf);
 			break;
 		case 1:
-			queue.enqueueReadBuffer(cumHistBuffer, CL_TRUE, 0, HIST_SIZE, &gCumHist[0]);
+			queue.enqueueReadBuffer(cumHistBuffer, CL_TRUE, 0, HIST_SIZE, &gCumHist[0], NULL, &outputProf);
 			break;
 		case 2:
 		default:
-			queue.enqueueReadBuffer(cumHistBuffer, CL_TRUE, 0, HIST_SIZE, &bCumHist[0]);
+			queue.enqueueReadBuffer(cumHistBuffer, CL_TRUE, 0, HIST_SIZE, &bCumHist[0], NULL, &outputProf);
 			break;
 		}
+
+		cout << "[Part 2] [Channel " << i << "] Cumulative Buffer Read Execution Time [ns]:" << outputProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - outputProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
+		cout << "[Part 2] [Channel " << i << "] Full Profiling Info (kernel) [ns]: " << GetFullProfilingInfo(cumulativeProf, ProfilingResolution::PROF_NS) << endl;
+		cout << "[Part 2] [Channel " << i << "] Cumulative Kernel Execution Time [ns]:" << cumulativeProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - cumulativeProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
 	}
 
 	/* PART 3 - Normalise Histogram */
@@ -204,6 +238,15 @@ void perform_colour_op(CImg<unsigned char> inputImgPtr, int platform_id, int dev
 	cl::Buffer normHistBuffer(context, CL_MEM_READ_WRITE, HIST_SIZE); // Create buffer to store normalised histogram
 	cl::Buffer pixelCountBuffer(context, CL_MEM_READ_ONLY, sizeof(float)); // Create buffer to store normalisation calc
 
+	// Report stats for histogram kernel
+	cout << "[Part 1] Maximum Work Group Size: ";
+	cerr << kernelNormHist.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(device) << endl; // Get device info
+	cout << "[Part 1] Preferred Work Group Size: ";
+	cerr << kernelNormHist.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device) << endl; // Get device info
+
+	// Event for tracking kernel execution time
+	cl::Event normalisedProf;
+	
 	float pixelCount = (float)255 / (float)(inputImgPtr.height() * inputImgPtr.width()); // Obtain pixel count of image
 	queue.enqueueWriteBuffer(pixelCountBuffer, CL_TRUE, 0, sizeof(int), &pixelCount); // Write pixel count value to buffer
 
@@ -214,16 +257,18 @@ void perform_colour_op(CImg<unsigned char> inputImgPtr, int platform_id, int dev
 		// Queue a write of the correct histgram buffer
 		switch (i) {
 		case 0:
-			queue.enqueueWriteBuffer(cumHistBuffer, CL_TRUE, 0, HIST_SIZE, &rCumHist[0]);
+			queue.enqueueWriteBuffer(cumHistBuffer, CL_TRUE, 0, HIST_SIZE, &rCumHist[0], NULL, &inputProf);
 			break;
 		case 1:
-			queue.enqueueWriteBuffer(cumHistBuffer, CL_TRUE, 0, HIST_SIZE, &gCumHist[0]);
+			queue.enqueueWriteBuffer(cumHistBuffer, CL_TRUE, 0, HIST_SIZE, &gCumHist[0], NULL, &inputProf);
 			break;
 		case 2:
 		default:
-			queue.enqueueWriteBuffer(cumHistBuffer, CL_TRUE, 0, HIST_SIZE, &bCumHist[0]);
+			queue.enqueueWriteBuffer(cumHistBuffer, CL_TRUE, 0, HIST_SIZE, &bCumHist[0], NULL, &inputProf);
 			break;
 		}
+
+		cout << "[Part 3] [Channel " << i << "] Cumulative Buffer Memory Write Time [ns]: " << inputProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - outputProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
 
 		kernelNormHist.setArg(0, cumHistBuffer); // Load in the cumulative histogram buffer
 		kernelNormHist.setArg(1, normHistBuffer); // Pass in our normalised buffer filled with 0's
@@ -245,6 +290,10 @@ void perform_colour_op(CImg<unsigned char> inputImgPtr, int platform_id, int dev
 			queue.enqueueReadBuffer(normHistBuffer, CL_TRUE, 0, HIST_SIZE, &bNormHist[0]);
 			break;
 		}
+
+		cout << "[Part 3] [Channel " << i << "] Normalised Buffer Read Execution Time [ns]:" << outputProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - outputProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
+		cout << "[Part 3] [Channel " << i << "] Full Profiling Info (kernel) [ns]: " << GetFullProfilingInfo(cumulativeProf, ProfilingResolution::PROF_NS) << endl;
+		cout << "[Part 3] [Channel " << i << "] Normalise Kernel Execution Time [ns]:" << cumulativeProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - cumulativeProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
 	}
 
 	/* PART 4 - LOOK UP TABLE & OUTPUT */
@@ -267,16 +316,31 @@ void perform_colour_op(CImg<unsigned char> inputImgPtr, int platform_id, int dev
 	kernelLut.setArg(3, gOutBuffer); // Load in our output image buffer for writing to
 	kernelLut.setArg(4, bOutBuffer); // Load in our output image buffer for writing to
 
+	// Report stats for normalisation kernel
+	cout << "[Part 4] Maximum Work Group Size: ";
+	cerr << kernelLut.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(device) << endl; // Get device info
+	cout << "[Part 4] Preferred Work Group Size: ";
+	cerr << kernelLut.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device) << endl; // Get device info
+
+	// Event for tracking kernel execution time
+	cl::Event lutProf;
+
+
 	// Execute lut_rgb kernel
-	queue.enqueueNDRangeKernel(kernelLut, cl::NullRange, cl::NDRange(inputImgPtr.size()), cl::NDRange(256));
+	queue.enqueueNDRangeKernel(kernelLut, cl::NullRange, cl::NDRange(inputImgPtr.size()), cl::NDRange(256), NULL, &lutProf);
 
 	// Copy the result from device to host
-	queue.enqueueReadBuffer(outputImgBuffer, CL_TRUE, 0, outputImgVect.size(), &outputImgVect.data()[0]);
+	queue.enqueueReadBuffer(outputImgBuffer, CL_TRUE, 0, outputImgVect.size(), &outputImgVect.data()[0], NULL, &outputProf);
 
 	// Display comparison between input & output
 	CImg<unsigned char> output_image(outputImgVect.data(), inputImgPtr.width(), inputImgPtr.height(), inputImgPtr.depth(), inputImgPtr.spectrum());
 	CImgDisplay inputImgDisp(inputImgPtr, "[COLOUR] Input Image - IMP15591119");
 	CImgDisplay outputImgDisp(output_image, "[COLOUR] Output Image - IMP15591119");
+
+	cout << "[Part 4] Output Image Buffer Write Time [ns]: " << outputProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - outputProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << endl;
+	cout << "[Part 4] Look-Up Table Kernel Execution Time [ns]:" << lutProf.getProfilingInfo<CL_PROFILING_COMMAND_END>() - lutProf.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
+	cout << "[Part 4] Full Profiling Info (kernel) [ns]: " << GetFullProfilingInfo(lutProf, ProfilingResolution::PROF_NS) << endl;
+
 
 	while (!inputImgDisp.is_closed() && !outputImgDisp.is_closed() && !inputImgDisp.is_keyESC() && !outputImgDisp.is_keyESC()) {
 		inputImgDisp.wait(1);
@@ -285,8 +349,7 @@ void perform_colour_op(CImg<unsigned char> inputImgPtr, int platform_id, int dev
 
 }
 
-
-// Performs the required functionality for a greyscale image
+// Performs contrast adjustment for a greyscale image
 void perform_greyscale_op(CImg<unsigned char> inputImgPtr, int platform_id, int device_id) {
 	// Select platform and device to use to create a context from
 	cl::Context context = GetContext(platform_id, device_id);
@@ -343,9 +406,9 @@ void perform_greyscale_op(CImg<unsigned char> inputImgPtr, int platform_id, int 
 
 	// Report stats for histogram kernel
 	cout << "[Part 1] Maximum Work Group Size: ";
-	cerr << kernelHist.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(device) << endl; //get info
+	cerr << kernelHist.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(device) << endl; // Get device info
 	cout << "[Part 1] Preferred Work Group Size: ";
-	cerr << kernelHist.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device) << endl; //get info
+	cerr << kernelHist.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device) << endl; // Get device info
 
 	// Event for tracking kernel execution time
 	cl::Event histogramProf;
@@ -380,9 +443,9 @@ void perform_greyscale_op(CImg<unsigned char> inputImgPtr, int platform_id, int 
 
 	// Report stats for cumulative kernel
 	cout << "[Part 2] Maximum Work Group Size: ";
-	cerr << kernelCum.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(device) << endl; //get info
+	cerr << kernelCum.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(device) << endl; // Get device info
 	cout << "[Part 2] Preferred Work Group Size: ";
-	cerr << kernelCum.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device) << endl; //get info
+	cerr << kernelCum.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device) << endl; // Get device info
 
 	// Event for tracking kernel execution time
 	cl::Event cumulativeProf;
@@ -423,9 +486,9 @@ void perform_greyscale_op(CImg<unsigned char> inputImgPtr, int platform_id, int 
 
 	// Report stats for normalisation kernel
 	cout << "[Part 3] Maximum Work Group Size: ";
-	cerr << kernelCumNormHist.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(device) << endl; //get info
+	cerr << kernelCumNormHist.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(device) << endl; // Get device info
 	cout << "[Part 3] Preferred Work Group Size: ";
-	cerr << kernelCumNormHist.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device) << endl; //get info
+	cerr << kernelCumNormHist.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device) << endl; // Get device info
 
 	// Event for tracking kernel execution time
 	cl::Event normalisedProf;
@@ -458,9 +521,9 @@ void perform_greyscale_op(CImg<unsigned char> inputImgPtr, int platform_id, int 
 
 	// Report stats for normalisation kernel
 	cout << "[Part 4] Maximum Work Group Size: ";
-	cerr << kernelLut.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(device) << endl; //get info
+	cerr << kernelLut.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(device) << endl; // Get device info
 	cout << "[Part 4] Preferred Work Group Size: ";
-	cerr << kernelLut.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device) << endl; //get info
+	cerr << kernelLut.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device) << endl; // Get device info
 
 	// Event for tracking kernel execution time
 	cl::Event lutProf;
