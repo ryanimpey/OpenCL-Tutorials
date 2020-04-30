@@ -27,7 +27,8 @@ using namespace std;
 	colour and greyscale images. The program includes code fragements from CMP3752M workshops.
 
 	To run the program, the string named 'inputImgFilename' will need to be modified to the .pgm/.ppm file
-	you wish to execute.
+	you wish to execute. The image files will need to be placed in the \x64\Debug\assignment alongside the
+	assignment.exe file.
 */
 
 // Returns console information about different flags that can be passed to the function
